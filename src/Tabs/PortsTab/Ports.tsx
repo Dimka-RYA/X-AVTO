@@ -152,35 +152,34 @@ export const Ports: React.FC = () => {
       {searchComponent}
       
       <div className="ports-table-container">
-        {loading ? (
-          <div className="loading-indicator">
-            <div>Загрузка данных... {ports.length > 0 ? `(найдено ${ports.length} портов, но ещё загружаем)` : ''}</div>
-            <div className="loading-actions">
-              <button 
-                onClick={() => refreshPorts()}
-                className="refresh-button"
-              >
-                Принудительно обновить
-              </button>
-            </div>
-          </div>
-        ) : error && ports.length === 0 ? (
+        {error && <div className="error-toast">{error}</div>}
+        
+        {/* Отображаем количество портов над таблицей */}
+        <div className="ports-summary">
+          {loading ? (
+            <span className="loading-text">Загрузка данных... {ports.length > 0 ? `(найдено ${ports.length} портов)` : ''}</span>
+          ) : (
+            <span>Найдено {ports.length} портов</span>
+          )}
+          {loading && (
+            <button 
+              onClick={() => refreshPorts()}
+              className="refresh-button"
+            >
+              Принудительно обновить
+            </button>
+          )}
+        </div>
+        
+        {/* Мемоизированный компонент таблицы всегда отображается */}
+        {tableComponent}
+        
+        {/* Отдельное отображение ошибки, если нет портов */}
+        {error && ports.length === 0 && (
           <div className="error-message">
             {error}
             <button onClick={() => refreshPorts()} className="retry-button">Повторить</button>
           </div>
-        ) : (
-          <>
-            {error && <div className="error-toast">{error}</div>}
-            {/* Отображаем количество портов над таблицей */}
-            {ports.length > 0 && (
-              <div className="ports-summary">
-                Найдено {ports.length} портов
-              </div>
-            )}
-            {/* Мемоизированный компонент таблицы */}
-            {tableComponent}
-          </>
         )}
       </div>
     </div>
