@@ -1,0 +1,105 @@
+nav {
+  position: relative;
+  width: 250px;
+  height: 100%;
+  background-color: #2a2a2a;
+  color: #ffffff;
+  border-right: 1px solid #3c3c3c;
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: width 0.3s ease;
+}
+
+nav.collapsed {
+  width: 60px;
+}
+
+ul {
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+li {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+li a {
+  display: flex;
+  align-items: center;
+  padding: 15px 20px;
+  color: #ffffff;
+  text-decoration: none;
+  transition: all 0.2s;
+  white-space: nowrap;
+  overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+li a:hover {
+  background-color: #3c3c3c;
+}
+
+li a:hover .icon,
+li a:hover .text,
+li a:hover .svg-icon {
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 0.9;
+}
+
+li a.active {
+  background-color: #363636;
+}
+
+.icon {
+  font-size: 20px;
+  min-width: 24px;
+  margin-right: 12px;
+  text-align: center;
+  transition: color 0.2s;
+  opacity: 0.7;
+}
+
+.svg-icon {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  margin-right: 12px;
+  transition: opacity 0.2s;
+  opacity: 0.7;
+  fill: currentColor;
+}
+
+.text {
+  opacity: 0.7;
+  transition: color 0.2s;
+}
+
+li a.active .icon,
+li a.active .text,
+li a.active .svg-icon {
+  opacity: 1;
+}
+
+nav.collapsed .text {
+  display: none;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  transition: background-color 0.2s;
+}
+
+.resize-handle:hover {
+  background-color: rgba(0, 122, 204, 0.3);
+}

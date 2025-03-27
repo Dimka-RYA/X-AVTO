@@ -1,0 +1,841 @@
+.ports-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #fff;
+}
+
+.search-container {
+  padding: 10px 15px 5px;
+  flex-shrink: 0;
+}
+
+.search-wrapper {
+  display: flex;
+  width: 100%;
+  gap: 10px;
+}
+
+.search-input {
+  flex: 1;
+  padding: 8px 12px;
+  background-color: #333;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.search-input::placeholder {
+  color: #aaa;
+}
+
+.refresh-button {
+  width: 36px;
+  height: 36px;
+  background-color: #333;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.refresh-button:hover {
+  background-color: #444;
+}
+
+.refresh-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ports-table-container {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  padding: 0 15px 15px;
+}
+
+.ports-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: #fff;
+  background-color: #222;
+  table-layout: fixed;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 14px;
+}
+
+.ports-table th,
+.ports-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  position: relative;
+}
+
+.ports-table th {
+  background-color: #2a2a2a;
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  user-select: none;
+  text-transform: uppercase;
+  font-size: 12px;
+  color: #ccc;
+}
+
+.ports-table tr:hover {
+  background-color: #2d2d2d;
+}
+
+/* Стили для ячеек с адресами */
+.address-cell {
+  font-family: 'Consolas', 'Courier New', monospace;
+  color: #4db6ac;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+/* Выделение для адресов 0.0.0.0 (формат netstat) */
+.address-cell[data-full-addr^="0.0.0.0"] {
+  color: #9c27b0; /* Фиолетовый для общих адресов */
+  font-weight: 500;
+}
+
+/* Локальные адреса 127.0.0.1 (формат netstat) */
+.address-cell[data-full-addr^="127.0.0.1"] {
+  color: #4caf50; /* Зеленый для локальных адресов */
+  font-weight: 500;
+}
+
+/* Адреса UDP (*:*) - формат netstat */
+.address-cell[data-full-addr="*:*"] {
+  color: #ff9800; /* Оранжевый для UDP адресов */
+  font-weight: 500;
+}
+
+/* IPv6 адреса */
+.address-cell[data-is-ipv6="true"] {
+  color: #3f51b5; /* Синий для IPv6 */
+  font-size: 0.95em; /* Немного меньше размер для IPv6 адресов */
+}
+
+/* Стили для ячеек с состоянием */
+.state-cell {
+  font-weight: 500;
+}
+
+/* Корректные селекторы для разных состояний */
+.state-cell[data-state="LISTENING"],
+.state-cell[data-state="LISTEN"] {
+  color: #4caf50;
+}
+
+.state-cell[data-state="ESTABLISHED"] {
+  color: #2196f3;
+}
+
+.state-cell[data-state="TIME_WAIT"],
+.state-cell[data-state="CLOSE_WAIT"] {
+  color: #ff9800;
+}
+
+.state-cell[data-state="DATAGRAM"],
+.state-cell[data-protocol="UDP"] {
+  color: #ff9800;
+}
+
+/* Стили для имен процессов */
+.process-name-cell {
+  color: #bb86fc;
+  font-weight: 500;
+}
+
+.action-button {
+  background-color: #f44336;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.action-button:hover {
+  background-color: #d32f2f;
+}
+
+.action-button:disabled {
+  background-color: #ffcdd2;
+  cursor: not-allowed;
+  position: relative;
+  overflow: hidden;
+}
+
+.action-button:disabled::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg, 
+    transparent, 
+    rgba(255, 255, 255, 0.2), 
+    transparent
+  );
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+.no-results {
+  text-align: center;
+  padding: 15px;
+  color: #aaa;
+  font-style: italic;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background-color: transparent;
+  transition: background-color 0.2s;
+}
+
+.resize-handle:hover {
+  background-color: rgba(0, 122, 204, 0.3);
+}
+
+.loading-indicator, 
+.error-message {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #fff;
+  font-size: 16px;
+  height: 100%;
+  width: 100%;
+}
+
+.error-toast {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(255, 69, 69, 0.9);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 4px;
+  z-index: 100;
+  font-size: 14px;
+  animation: fadeIn 0.3s, fadeOut 0.3s 2.7s;
+}
+
+.error-message {
+  color: #ff6b6b;
+}
+
+/* Улучшенные всплывающие подсказки */
+.ports-table td[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  left: 0;
+  top: 100%;
+  background-color: #1a1a1a;
+  color: #fff;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 8px 12px;
+  z-index: 10;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 13px;
+  white-space: pre-line;
+  min-width: 200px;
+  max-width: 300px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+  animation: fadeInTooltip 0.2s;
+}
+
+/* Правильное позиционирование для ячеек справа */
+.ports-table td:nth-child(n+5)[title]:hover::after {
+  left: auto;
+  right: 0;
+}
+
+@keyframes fadeInTooltip {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Анимация загрузки */
+.loading-indicator:after {
+  content: '.';
+  animation: dots 1.5s steps(5, end) infinite;
+}
+
+@keyframes dots {
+  0%, 20% {
+    color: rgba(0,0,0,0);
+    text-shadow:
+      .25em 0 0 rgba(0,0,0,0),
+      .5em 0 0 rgba(0,0,0,0);
+  }
+  40% {
+    color: white;
+    text-shadow:
+      .25em 0 0 rgba(0,0,0,0),
+      .5em 0 0 rgba(0,0,0,0);
+  }
+  60% {
+    text-shadow:
+      .25em 0 0 white,
+      .5em 0 0 rgba(0,0,0,0);
+  }
+  80%, 100% {
+    text-shadow:
+      .25em 0 0 white,
+      .5em 0 0 white;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* Адаптация ширины колонок */
+.ports-table th:nth-child(1),
+.ports-table td:nth-child(1) {
+  width: 10%;
+}
+
+.ports-table th:nth-child(2),
+.ports-table td:nth-child(2) {
+  width: 20%;
+}
+
+.ports-table th:nth-child(3),
+.ports-table td:nth-child(3) {
+  width: 20%;
+}
+
+.ports-table th:nth-child(4),
+.ports-table td:nth-child(4) {
+  width: 15%;
+}
+
+.ports-table th:nth-child(5),
+.ports-table td:nth-child(5) {
+  width: 8%;
+}
+
+.ports-table th:nth-child(6),
+.ports-table td:nth-child(6) {
+  width: 15%;
+}
+
+.ports-table th:nth-child(7),
+.ports-table td:nth-child(7) {
+  width: 12%;
+}
+
+/* Контейнер для страницы портов */
+.ports-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px;
+  background-color: var(--background-color);
+  color: var(--text-color);
+}
+
+/* Заголовок */
+.ports-page h1 {
+  font-size: 24px;
+  margin-bottom: 16px;
+  color: var(--primary-color);
+}
+
+/* Панель поиска и обновления */
+.ports-search-bar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+/* Поле ввода поиска */
+.ports-search-bar input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--input-background);
+  color: var(--text-color);
+  margin-right: 8px;
+}
+
+/* Кнопка обновления */
+.refresh-button {
+  padding: 8px 12px;
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.refresh-button:hover {
+  background-color: var(--primary-color-dark);
+}
+
+.refresh-button:disabled {
+  background-color: var(--disabled-color);
+  cursor: not-allowed;
+}
+
+/* Контейнер для списка портов */
+.ports-list {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--table-background);
+}
+
+/* Таблица портов */
+.ports-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+/* Заголовки таблицы */
+.ports-table thead {
+  position: sticky;
+  top: 0;
+  background-color: var(--header-background);
+  z-index: 10;
+}
+
+.ports-table th {
+  font-weight: 600;
+  text-align: left;
+  padding: 12px 16px;
+  color: var(--header-text-color);
+  border-bottom: 2px solid var(--border-color);
+  position: relative;
+  user-select: none;
+}
+
+/* Строки таблицы */
+.ports-table tbody tr {
+  border-bottom: 1px solid var(--border-color-light);
+  transition: background-color 0.2s;
+}
+
+.ports-table tbody tr:hover {
+  background-color: var(--hover-color);
+}
+
+/* Ячейки таблицы */
+.ports-table td {
+  padding: 10px 16px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Стиль для состояния порта */
+.state-cell[data-state="LISTENING"],
+.state-cell[data-state="LISTEN"] {
+  color: #4caf50;
+  font-weight: 500;
+}
+
+.state-cell[data-state="ESTABLISHED"] {
+  color: #2196f3;
+  font-weight: 500;
+}
+
+.state-cell[data-state="TIME_WAIT"],
+.state-cell[data-state="CLOSE_WAIT"] {
+  color: #ff9800;
+}
+
+.state-cell[data-state="CLOSED"] {
+  color: #757575;
+}
+
+/* Стили для ячеек адресов */
+.address-cell {
+  font-family: 'Consolas', 'Courier New', monospace;
+  position: relative;
+}
+
+/* Индикатор наличия полного адреса в тултипе */
+.address-cell[title]:hover::after {
+  content: "ℹ️";
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.5;
+  font-size: 12px;
+}
+
+/* Стиль для имени процесса */
+.process-name-cell {
+  font-weight: 500;
+}
+
+/* Стиль для значка состояния */
+.status-icon {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+/* Кнопка действия */
+.action-button {
+  padding: 6px 12px;
+  background-color: #f44336;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+}
+
+.action-button:hover {
+  background-color: #d32f2f;
+}
+
+.action-button:disabled {
+  background-color: #bdbdbd;
+  cursor: not-allowed;
+}
+
+/* Индикатор загрузки */
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100px;
+}
+
+/* Стиль для сообщения "нет результатов" */
+.no-results {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-secondary);
+}
+
+/* Изменяемый заголовок */
+.resizeable-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 100%;
+  width: 100%;
+}
+
+.header-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resize-handle {
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 11;
+  background-color: transparent;
+  transition: background-color 0.2s;
+}
+
+.resize-handle:hover,
+.resize-handle.active {
+  background-color: var(--primary-color);
+}
+
+/* Всплывающие подсказки */
+[title] {
+  position: relative;
+  cursor: help;
+}
+
+/* Стили для выделения служб в адресах */
+.address-cell span.service-name {
+  color: #4caf50;
+  font-weight: 500;
+}
+
+/* Стиль для локальных адресов */
+.address-cell[data-raw-addr*="127.0.0.1"],
+.address-cell[data-raw-addr*="localhost"],
+.address-cell[data-raw-addr*="::1"] {
+  color: #9c27b0;
+}
+
+/* Стиль для адресов для всех интерфейсов */
+.address-cell[data-raw-addr*="0.0.0.0"],
+.address-cell[data-raw-addr="*"] {
+  color: #2196f3;
+  font-weight: 500;
+}
+
+/* Стили для таблички с процессом */
+.process-name-cell[title] {
+  position: relative;
+  cursor: help;
+}
+
+/* Улучшенные стили для протоколов */
+.protocol-cell {
+  font-weight: bold;
+  text-align: center;
+}
+
+/* Стили для протоколов */
+.protocol-cell[data-protocol="UDP"] {
+  color: #ff9800;
+  font-weight: bold;
+}
+
+.protocol-cell[data-protocol="TCP"] {
+  color: #2196f3;
+  font-weight: bold;
+}
+
+/* Стиль для UDP адресов */
+.address-cell[data-udp="true"] {
+  color: #ff9800;
+}
+
+/* Стили для внешнего адреса *:* (UDP) */
+.address-cell[data-full-addr="*:*"],
+.address-cell[data-full-addr="0.0.0.0:0"] {
+  color: #ff9800;
+  font-weight: 500;
+}
+
+/* Стили для PID ячеек */
+.pid-cell {
+  font-family: 'Consolas', 'Courier New', monospace;
+  text-align: center;
+  font-weight: 500;
+}
+
+/* Строки с UDP протоколом */
+tr:has(td:first-child:contains("UDP")) td.address-cell {
+  color: #ff9800;
+}
+
+/* Стили для заголовка и панели управления */
+.ports-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding: 0 5px;
+}
+
+.ports-header h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  color: #444;
+}
+
+.ports-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.search-input {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 250px;
+  transition: border-color 0.2s;
+}
+
+.search-input:focus {
+  border-color: #4285f4;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+}
+
+.refresh-button {
+  padding: 8px 16px;
+  background-color: #4285f4;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.refresh-button:hover {
+  background-color: #3b78e7;
+}
+
+.refresh-button:active {
+  background-color: #3367d6;
+}
+
+.refresh-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.refresh-button.refreshing {
+  position: relative;
+  color: transparent;
+}
+
+.refresh-button.refreshing::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Стили для UDP протоколов */
+td:first-child:contains("UDP"),
+td.protocol-cell:contains("UDP") {
+  color: #ff9800;
+  font-weight: bold;
+}
+
+/* Стили для TCP протоколов */
+td:first-child:contains("TCP"),
+td.protocol-cell:contains("TCP") {
+  color: #2196f3;
+  font-weight: bold;
+}
+
+/* Обеспечение корректного отображения русского языка в таблице */
+.ports-table {
+  font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+.ports-table td, 
+.ports-table th {
+  text-align: left;
+  font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+/* Стили для тултипов с русским текстом */
+[title] {
+  position: relative;
+}
+
+[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #333;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  white-space: pre-line;
+  z-index: 1000;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 0.85rem;
+  min-width: 200px;
+  text-align: left;
+}
+
+/* Стили для процессов на русском языке */
+.process-name-cell {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+  position: relative;
+}
+
+/* Индикатор наличия пути к исполняемому файлу */
+.path-indicator {
+  display: inline-block;
+  font-size: 0.8rem;
+  margin-left: 5px;
+  color: #4caf50;
+  cursor: help;
+  vertical-align: middle;
+}
+
+/* Стиль для подсветки ячейки с путем */
+.process-name-cell[data-has-path="true"] {
+  border-left: 2px solid #4caf50;
+  padding-left: 6px;
+}
+
+/* Улучшаем стиль тултипа для путей */
+.process-name-cell[data-has-path="true"][title]:hover::after {
+  min-width: 300px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  z-index: 1010;
+  line-height: 1.4;
+} 

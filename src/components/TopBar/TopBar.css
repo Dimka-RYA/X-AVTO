@@ -1,0 +1,55 @@
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 40px;
+  background-color: #2a2a2a;
+  color: #ffffff;
+  -webkit-app-region: drag;
+  user-select: none;
+  width: 100%;
+  padding: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+}
+
+.app-title {
+  font-size: 16px;
+  font-weight: 500;
+  margin-left: 10px;
+}
+
+.topbar-right {
+  display: flex;
+  -webkit-app-region: no-drag;
+  margin-left: auto;
+  margin-right: 30px;
+}
+
+.window-control {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  color: #ffffff;
+  font-size: 14px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.window-control:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.close:hover {
+  background-color: #e81123;
+} 
