@@ -3,7 +3,7 @@
   justify-content: space-between;
   align-items: center;
   height: 40px;
-  background-color: #2a2a2a;
+  background-color: #2A2A2A;
   color: #ffffff;
   -webkit-app-region: drag;
   user-select: none;
@@ -12,7 +12,8 @@
   position: sticky;
   top: 0;
   z-index: 1000;
-  border-bottom: 1px solid #3c3c3c;
+  border: 1px solid #565555;
+  font-family: 'Inter', sans-serif;
 }
 
 .topbar-left {
@@ -24,32 +25,38 @@
   font-size: 16px;
   font-weight: 500;
   margin-left: 10px;
+  font-family: 'Inter', sans-serif;
 }
 
 .topbar-right {
   display: flex;
   -webkit-app-region: no-drag;
   margin-left: auto;
-  margin-right: 30px;
+  margin-right: 10px;
 }
 
-.window-control {
+.topbar-right button {
+  background: none;
+  color: #525050;
+  border: none;
   width: 30px;
   height: 30px;
-  background: transparent;
-  color: #ffffff;
-  font-size: 14px;
   display: flex;
   justify-content: center;
   align-items: center;
   cursor: pointer;
-  transition: background-color 0.2s;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  box-shadow: none;
+  border-radius: 0;
+  transition: 0.3s;
 }
 
-.window-control:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+.topbar-right button:hover {
+  color: #ffffff;
 }
 
-.close:hover {
-  background-color: #e81123;
-} 
+.window-control {
+  background: none;
+}

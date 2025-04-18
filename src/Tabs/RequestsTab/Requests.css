@@ -1,0 +1,1240 @@
+/* 
+ * Requests Tab Styles
+ * Main styles for the request components
+ */
+
+/* ------ VARIABLES ------ */
+:root {
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-tertiary: rgba(255, 255, 255, 0.5);
+  --background-primary: #1e1e1e;
+  --background-secondary: #252525;
+  --border-color: #333333;
+  --border-hover: rgba(255, 255, 255, 0.3);
+  --border-light: rgba(255, 255, 255, 0.1);
+  
+  /* HTTP Method Colors */
+  --method-get-bg: rgba(97, 175, 254, 0.1);
+  --method-get-color: #61affe;
+  --method-post-bg: rgba(73, 204, 144, 0.1);
+  --method-post-color: #49cc90;
+  --method-put-bg: rgba(252, 161, 48, 0.1);
+  --method-put-color: #fca130;
+  --method-delete-bg: rgba(249, 62, 62, 0.1);
+  --method-delete-color: #f93e3e;
+  --method-patch-bg: rgba(80, 227, 194, 0.1);
+  --method-patch-color: #50e3c2;
+  
+  /* Status Colors */
+  --status-success: #49cc90;
+  --status-redirect: #fca130;
+  --status-client-error: #f93e3e;
+  --status-server-error: #ff3333;
+  
+  /* Common Spacing */
+  --spacing-xs: 5px;
+  --spacing-sm: 8px;
+  --spacing-md: 10px;
+  --spacing-lg: 15px;
+  --spacing-xl: 20px;
+  
+  /* Common Font Sizes */
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: 14px;
+  
+  /* Common Radii */
+  --radius-sm: 4px;
+  --radius-md: 5px;
+}
+
+/* ------ MAIN CONTAINERS ------ */
+.requests-container,
+.api-client-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  box-sizing: border-box;
+}
+
+.requests-container {
+  background-color: var(--background-primary);
+  padding: 20px;
+  gap: 20px;
+}
+
+.api-client-container {
+  background-color: transparent;
+  padding: 20px 40px 40px 40px;
+}
+
+/* ------ HEADER AND SEARCH ------ */
+.requests-header {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.requests-header h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.requests-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+
+.search-container {
+  position: relative;
+  flex: 1;
+  max-width: 350px;
+}
+
+.search-input {
+  width: 100%;
+  background-color: var(--background-tertiary);
+  border: none;
+  border-radius: 6px;
+  padding: 10px 36px 10px 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.search-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+/* ------ FILTER BUTTONS ------ */
+.filter-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-btn {
+  background-color: var(--background-tertiary);
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.filter-btn:hover {
+  background-color: #424242;
+}
+
+.filter-btn.active {
+  background-color: #505050;
+  color: var(--text-primary);
+}
+
+/* ------ URL BAR PANEL ------ */
+.request-url-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 15px;
+}
+
+.method-selector {
+  min-width: 110px;
+  margin-right: 10px;
+}
+
+.method-select {
+  width: 100%;
+  height: 40px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background-color: var(--background-dark);
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 0 12px;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+}
+
+.method-select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+/* Цвета для разных методов */
+.method-select.method-get {
+  background-color: rgba(97, 175, 254, 0.1);
+  color: #61affe;
+  border-color: #61affe;
+}
+
+.method-select.method-post {
+  background-color: rgba(73, 204, 144, 0.1);
+  color: #49cc90;
+  border-color: #49cc90;
+}
+
+.method-select.method-put {
+  background-color: rgba(252, 161, 48, 0.1);
+  color: #fca130;
+  border-color: #fca130;
+}
+
+.method-select.method-delete {
+  background-color: rgba(249, 62, 62, 0.1);
+  color: #f93e3e;
+  border-color: #f93e3e;
+}
+
+.method-select.method-patch {
+  background-color: rgba(80, 227, 194, 0.1);
+  color: #50e3c2;
+  border-color: #50e3c2;
+}
+
+.method-select option {
+  background-color: var(--background-dark);
+  color: white;
+}
+
+.url-input {
+  flex: 1;
+  background-color: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+  padding: 0 15px;
+}
+
+.send-button {
+  width: 100px;
+  height: 100%;
+  background-color: var(--accent-color);
+  color: var(--text-primary);
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  border-left: 1px solid var(--border-color);
+}
+
+.send-button:hover {
+  background-color: var(--accent-hover);
+}
+
+.send-button.loading {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* ------ MAIN CONTENT ------ */
+.requests-content, 
+.request-response-container {
+  display: flex;
+  flex: 1;
+  gap: 15px;
+  overflow: hidden;
+}
+
+.request-response-container {
+  margin-top: 0;
+}
+
+/* ------ REQUEST LIST ------ */
+.requests-list {
+  flex: 1;
+  background-color: var(--background-tertiary);
+  border-radius: 8px;
+  overflow-y: auto;
+  max-height: calc(100vh - 180px);
+  min-width: 350px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.request-item {
+  padding: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.request-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.request-item.selected {
+  background-color: #424242;
+  border-left: 3px solid #2196F3;
+}
+
+.request-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.request-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.timestamp {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ------ HTTP METHOD STYLES ------ */
+.method {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* Method colors */
+.method.GET, .method-get, .method-select.method-get {
+  color: var(--method-get);
+}
+
+.method.POST, .method-post, .method-select.method-post {
+  color: var(--method-post);
+}
+
+.method.PUT, .method-put, .method-select.method-put {
+  color: var(--method-put);
+}
+
+.method.DELETE, .method-delete, .method-select.method-delete {
+  color: var(--method-delete);
+}
+
+.method.PATCH, .method-patch, .method-select.method-patch {
+  color: var(--method-patch);
+}
+
+.request-url {
+  font-size: 14px;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.request-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.status {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.status.success {
+  color: var(--status-success);
+}
+
+.status.redirect {
+  color: var(--status-redirect);
+}
+
+.status.client-error {
+  color: var(--status-client-error);
+}
+
+.status.server-error {
+  color: var(--status-server-error);
+}
+
+.duration {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ------ REQUEST AND RESPONSE PANELS ------ */
+.request-panel, 
+.response-panel {
+  flex: 1;
+  background-color: var(--background-secondary);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: none;
+  margin-top: 0;
+  gap: 15px;
+}
+
+/* ------ PANEL CONTENT ------ */
+.request-content, 
+.response-content {
+  background-color: var(--background-secondary);
+  padding: 15px;
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 15px;
+}
+
+.detail-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.detail-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.request-details {
+  flex: 2;
+  background-color: var(--background-tertiary);
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* ------ TABS AND BUTTONS ------ */
+/* Fixed height tab containers */
+.protocol-selector, 
+.request-tabs, 
+.response-tabs {
+  display: flex;
+  background-color: var(--background-secondary);
+  border: 1px solid var(--border-color);
+  padding: 6px;
+  gap: 15px;
+  height: 47px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.protocol-selector {
+  margin: 0 0 20px 0;
+  border-radius: 8px;
+}
+
+.request-tabs, 
+.response-tabs {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  margin: 0;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* Common styles for all tab buttons */
+.protocol-btn, 
+.request-tab, 
+.response-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100px;
+  height: 35px;
+  padding: 0;
+  margin: 0;
+  background-color: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  outline: none;
+  box-shadow: none;
+  flex-shrink: 0;
+  flex-grow: 0;
+  border-radius: 6px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Active state button styles */
+.protocol-btn.active, 
+.request-tab.active, 
+.response-tab.active {
+  background-color: var(--accent-color);
+  color: var(--text-primary);
+  font-weight: 600;
+  border-radius: 6px;
+}
+
+/* Hover effect for inactive buttons */
+.protocol-btn:hover:not(.active), 
+.request-tab:hover:not(.active), 
+.response-tab:hover:not(.active) {
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.empty-state {
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 20px;
+  font-size: 12px;
+}
+
+/* ------ RESPONSE PANEL HEADER ------ */
+.response-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-right: 10px;
+  background-color: var(--background-secondary);
+  border-bottom: 1px solid var(--border-color);
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+.response-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-code {
+  font-weight: 600;
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background-color: transparent;
+  border: 1px solid var(--border-color);
+}
+
+/* Status code colors */
+.code-2xx {
+  color: var(--status-success);
+}
+
+.code-3xx {
+  color: var(--status-redirect);
+}
+
+.code-4xx {
+  color: var(--status-client-error);
+}
+
+.code-5xx {
+  color: var(--status-server-error);
+}
+
+.response-time, 
+.response-size {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ------ FORMAT SELECTOR ------ */
+.response-format-selector {
+  display: flex;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  gap: 8px;
+}
+
+.format-btn {
+  width: 80px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  border-radius: 4px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  margin: 0;
+  outline: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+  flex-grow: 0;
+}
+
+.format-btn.active {
+  color: var(--text-primary);
+  font-weight: 600;
+  background-color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+.format-btn:hover:not(.active) {
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* ------ AUTHORIZATION STYLES ------ */
+.auth-types {
+  margin-bottom: 15px;
+}
+
+.auth-type-select {
+  width: 100%;
+  background-color: var(--background-primary);
+  border: 1px solid var(--border-color);
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+.auth-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.auth-row label {
+  width: 100px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.auth-input {
+  flex: 1;
+  padding: 8px 10px;
+  background-color: var(--background-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+/* ------ REQUEST BODY STYLES ------ */
+.body-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 10px;
+}
+
+.body-type-selector {
+  margin-bottom: 10px;
+}
+
+.body-type-select {
+  background-color: var(--background-primary);
+  border: 1px solid var(--border-color);
+  padding: 6px 10px;
+  color: var(--text-primary);
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+.body-editor,
+.graphql-editor {
+  flex: 1;
+  min-height: 200px;
+  background-color: var(--background-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 10px;
+  font-family: 'Courier New', monospace;
+  resize: none;
+  border-radius: 4px;
+  line-height: 1.5;
+}
+
+/* ------ COOKIES AND HEADERS ------ */
+.cookies-content {
+  padding: 10px 0;
+}
+
+.no-cookies {
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 20px;
+  font-size: 12px;
+}
+
+/* Common table styles */
+.cookies-table, 
+.result-headers-table,
+.params-table, 
+.headers-table {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* Common row styles */
+.cookies-row, 
+.result-header-row,
+.params-row, 
+.headers-row {
+  display: flex;
+}
+
+.cookies-row, 
+.result-header-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 5px 0;
+}
+
+.cookies-header {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* Common styles for headers and parameters */
+.params-header, 
+.headers-header {
+  display: flex;
+  gap: 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 5px;
+}
+
+.param-key, 
+.header-key {
+  width: 40%;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.param-value, 
+.header-value {
+  width: 50%;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.param-actions, 
+.header-actions {
+  width: 10%;
+  text-align: right;
+}
+
+/* Common table value styles */
+.cookie-name, 
+.result-header-name,
+.cookie-value, 
+.result-header-value {
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.cookie-name, 
+.result-header-name {
+  width: 30%;
+  padding-right: 10px;
+  color: var(--text-secondary);
+}
+
+.cookie-value, 
+.result-header-value {
+  width: 70%;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Common input styles */
+.param-key-input, 
+.param-value-input,
+.header-key-input, 
+.header-value-input {
+  background-color: var(--background-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-size: 12px;
+  width: 100%;
+}
+
+/* Common delete button styles */
+.param-delete, 
+.header-delete {
+  background-color: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.param-delete:hover, 
+.header-delete:hover {
+  background-color: rgba(244, 67, 54, 0.1);
+  color: var(--status-client-error);
+}
+
+/* Common add button styles */
+.add-param-btn, 
+.add-header-btn {
+  background-color: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  padding: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  margin-top: 10px;
+  transition: all 0.2s ease;
+}
+
+.add-param-btn:hover, 
+.add-header-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* ------ REQUEST RESULTS ------ */
+.result-content {
+  padding: 10px 0;
+}
+
+.result-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 20px;
+}
+
+.result-item {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  align-items: center;
+}
+
+.result-label {
+  width: 80px;
+  color: var(--text-secondary);
+}
+
+.result-value {
+  font-weight: 500;
+}
+
+.result-headers h4 {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+  margin: 15px 0 10px 0;
+}
+
+/* ------ RESPONSE CONTENT DISPLAY ------ */
+.response-body {
+  flex: 1;
+  overflow: auto;
+  background-color: var(--background-secondary);
+  padding: 0;
+}
+
+.code-display {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 15px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  tab-size: 2;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: auto;
+  counter-reset: line;
+}
+
+.code-line {
+  counter-increment: line;
+  position: relative;
+}
+
+.code-line::before {
+  content: counter(line);
+  display: inline-block;
+  width: 1.5em;
+  padding-right: 1em;
+  text-align: right;
+  color: #666;
+  user-select: none;
+}
+
+/* ------ EMPTY STATES AND ERRORS ------ */
+.empty-response, 
+.error-container, 
+.preview-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 20px;
+  text-align: center;
+}
+
+.empty-message, 
+.preview-placeholder, 
+.waiting-message {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.preview-placeholder {
+  font-size: 14px;
+}
+
+.error-container {
+  color: var(--status-client-error);
+}
+
+.error-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.error-details {
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* ------ GRAPHQL SPECIFIC STYLES ------ */
+.graphql-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100px;
+  height: 100%;
+  background-color: var(--background-secondary);
+  border-right: 1px solid var(--border-color);
+}
+
+.graphql-badge {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e10098;
+}
+
+.graphql-query-content,
+.graphql-variables-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 15px;
+}
+
+.check-schema-btn {
+  background-color: #2a2a2a;
+  color: #e6e6e6;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 8px 16px;
+  align-self: flex-start;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.check-schema-btn:hover {
+  background-color: #303030;
+  border-color: #4a4a4a;
+}
+
+.check-schema-btn.loading {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.schema-error {
+  background-color: rgba(255, 69, 69, 0.1);
+  border-left: 3px solid #ff4545;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 2px;
+}
+
+.schema-error p {
+  color: #ff9999;
+  margin: 0;
+}
+
+.schema-explorer {
+  background-color: #1e1e1e;
+  border: 1px solid #2d2d2d;
+  border-radius: 4px;
+  padding: 12px;
+  overflow-y: auto;
+  max-height: 200px;
+  margin-bottom: 15px;
+}
+
+.schema-explorer h4 {
+  margin: 0 0 10px 0;
+  color: #e6e6e6;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.schema-types {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.schema-type-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #252525;
+  padding: 6px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.schema-type-item:hover {
+  background-color: #2a2a2a;
+}
+
+.schema-type-item strong {
+  color: #e0e0e0;
+  font-size: 13px;
+}
+
+.schema-type-kind {
+  color: #888;
+  font-size: 12px;
+  background-color: #333;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* ------ RESPONSIVENESS ------ */
+@media (max-width: 1200px) {
+  .requests-content {
+    flex-direction: column;
+  }
+  
+  .requests-list {
+    max-height: 300px;
+    min-width: auto;
+  }
+  
+  .request-details {
+    max-height: calc(100vh - 500px);
+  }
+}
+
+/* ------ ANIMATIONS ------ */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ------ HTTP METHOD BUTTONS ------ */
+.method-btn {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 30px;
+  width: auto;
+  padding: 0 15px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+  outline: none;
+  border: none;
+  transition: all 0.2s ease;
+  min-width: 65px;
+}
+
+.method-btn.get {
+  background-color: var(--method-get-bg);
+  color: var(--method-get-color);
+}
+
+.method-btn.post {
+  background-color: var(--method-post-bg);
+  color: var(--method-post-color);
+}
+
+.method-btn.put {
+  background-color: var(--method-put-bg);
+  color: var(--method-put-color);
+}
+
+.method-btn.delete {
+  background-color: var(--method-delete-bg);
+  color: var(--method-delete-color);
+}
+
+.method-btn.patch {
+  background-color: var(--method-patch-bg);
+  color: var(--method-patch-color);
+}
+
+/* ------ COMMON BUTTON STYLES ------ */
+.btn {
+  background-color: var(--background-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn:hover {
+  background-color: #3a3a3a;
+  border-color: var(--border-hover);
+}
+
+.btn-primary {
+  background-color: #0066cc;
+  border-color: #0055bb;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #0055bb;
+}
+
+/* Apply to existing classes */
+.send-btn,
+.check-schema-btn,
+.add-param-btn,
+.add-header-btn {
+  composes: btn;
+}
+
+.send-btn {
+  composes: btn-primary;
+}
+
+/* ------ COMMON INPUT STYLES ------ */
+.input-field {
+  background-color: var(--background-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  width: 100%;
+}
+
+.input-field:focus {
+  border-color: var(--border-hover);
+  outline: none;
+}
+
+/* Apply to existing input classes */
+.request-url-input,
+.auth-input,
+.param-key-input,
+.param-value-input,
+.header-key-input,
+.header-value-input {
+  composes: input-field;
+}
+
+/* ------ COMMON TABLE STYLES ------ */
+.data-table {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.data-row {
+  display: flex;
+}
+
+.data-header {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+.data-cell {
+  font-size: var(--font-sm);
+  word-break: break-all;
+}
+
+/* Apply to existing table classes */
+.cookies-table,
+.result-headers-table,
+.params-table,
+.headers-table {
+  composes: data-table;
+}
+
+.cookies-row,
+.result-header-row,
+.params-row,
+.headers-row {
+  composes: data-row;
+} 

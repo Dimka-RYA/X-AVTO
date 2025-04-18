@@ -27,7 +27,7 @@ export const Navigation = () => {
         setNavWidth(80);
       } else {
         setCollapsed(false);
-        setNavWidth(250);
+        setNavWidth(200);
       }
     };
 
@@ -46,11 +46,11 @@ export const Navigation = () => {
     };
   }, [isResizing]);
 
-  // Функция для рендеринга иконки (текстовой или SVG)
+  // Функция для рендеринга иконки (Lucide иконки)
   const renderIcon = (route: typeof routes[0]) => {
     if (route.svgIcon) {
-      const SvgIcon = route.svgIcon;
-      return <SvgIcon className="svg-icon" />;
+      const Icon = route.svgIcon;
+      return <Icon size={24} className="svg-icon" />;
     }
     return <span className="icon">{route.icon}</span>;
   };
@@ -67,10 +67,13 @@ export const Navigation = () => {
             <Link 
               to={route.path} 
               className={location.pathname === route.path ? 'active' : ''}
-              title={route.name}
             >
-              {renderIcon(route)}
-              <span className="text">{route.name}</span>
+              <div className="nav-item-content">
+                <div className="icon-container">
+                  {renderIcon(route)}
+                </div>
+                <div className="nav-text">{route.name}</div>
+              </div>
             </Link>
           </li>
         ))}

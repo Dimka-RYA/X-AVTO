@@ -1,92 +1,158 @@
+/* Явно импортируем шрифты в этот компонент */
+@import url('/fonts/fonts.css');
+
 nav {
   position: relative;
-  width: 250px;
+  width: 240px;
   height: 100%;
-  background-color: #2a2a2a;
+  background-color: #2A2A2A;
   color: #ffffff;
   border-right: 1px solid #3c3c3c;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden; /* Убираем скролл */
   transition: width 0.3s ease;
+  font-family: 'Inter', sans-serif;
+  display: flex;
+  flex-direction: column;
 }
 
 nav.collapsed {
-  width: 60px;
+  width: 80px;
 }
 
 ul {
   list-style-type: none;
   margin: 0;
-  padding: 0;
+  padding: 15px 0;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Убираем равномерное распределение по высоте */
+  justify-content: flex-start;
+  gap: 5px; /* Уменьшаем отступы между кнопками */
 }
 
 li {
   margin: 0;
   padding: 0;
   width: 100%;
+  position: relative;
+  display: flex;
+  justify-content: center;
 }
 
 li a {
-  display: flex;
-  align-items: center;
-  padding: 15px 20px;
-  color: #ffffff;
-  text-decoration: none;
-  transition: all 0.2s;
-  white-space: nowrap;
-  overflow: hidden;
-  width: 100%;
+  display: block;
+  padding: 8px 0;
+  color: #ffffff !important;
+  text-decoration: none !important;
+  width: 90%;
   box-sizing: border-box;
+  position: relative;
+  text-align: center;
+  font-family: 'Inter', sans-serif;
+  transition: background-color 0.3s ease;
+  border-radius: 8px;
 }
 
+/* Добавляем эффект при наведении */
 li a:hover {
-  background-color: #3c3c3c;
+  background-color: #9B9B9B !important;
+  color: #ffffff !important;
+  text-decoration: none !important;
+  border: none !important;
+  outline: none !important;
 }
 
-li a:hover .icon,
-li a:hover .text,
-li a:hover .svg-icon {
-  color: rgba(255, 255, 255, 0.9);
-  opacity: 0.9;
-}
-
+/* Стилизуем активную кнопку */
 li a.active {
-  background-color: #363636;
+  background-color: #343434 !important;
+}
+
+/* Переопределяем любые глобальные стили */
+nav a:hover {
+  color: #ffffff !important;
+  text-decoration: none !important;
+  border: none !important;
+  outline: none !important;
+}
+
+.nav-item-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+  pointer-events: none; /* Предотвращаем события мыши для контента */
+  /* Уменьшаем фиксированную высоту для контента */
+  height: 55px;
+}
+
+.icon-container {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100%;
+  height: 26px;
+  margin-bottom: 5px;
+  pointer-events: none; /* Предотвращаем события мыши для иконок */
 }
 
 .icon {
   font-size: 20px;
-  min-width: 24px;
-  margin-right: 12px;
   text-align: center;
-  transition: color 0.2s;
   opacity: 0.7;
+  pointer-events: none; /* Предотвращаем события мыши для иконок */
 }
 
 .svg-icon {
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
-  margin-right: 12px;
-  transition: opacity 0.2s;
   opacity: 0.7;
-  fill: currentColor;
+  color: #ffffff !important;
+  pointer-events: none; /* Предотвращаем события мыши для иконок */
 }
 
-.text {
+/* Убираем правила для ховера элементов иконок, теперь ховер только для фона */
+li a:hover .icon,
+li a:hover .nav-text,
+li a:hover .svg-icon {
+  opacity: 1 !important; /* Увеличиваем видимость при наведении */
+  color: #ffffff !important;
+  visibility: visible !important;
+  display: block !important;
+}
+
+.nav-text {
+  width: 100%;
+  font-size: 12px;
+  text-align: center;
   opacity: 0.7;
-  transition: color 0.2s;
+  overflow: hidden;
+  font-family: 'Inter', sans-serif !important;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 2px;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+  color: #ffffff !important;
+  visibility: visible !important;
+  display: block !important;
+  pointer-events: none; /* Предотвращаем события мыши для текста */
+  user-select: none; /* Запрещаем выделение текста */
+}
+
+/* Гарантируем, что текст всегда видим */
+li a:hover .nav-text {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important; /* Увеличиваем видимость при наведении */
+  pointer-events: none;
 }
 
 li a.active .icon,
-li a.active .text,
+li a.active .nav-text,
 li a.active .svg-icon {
   opacity: 1;
-}
-
-nav.collapsed .text {
-  display: none;
 }
 
 .resize-handle {
@@ -97,9 +163,9 @@ nav.collapsed .text {
   height: 100%;
   cursor: col-resize;
   z-index: 10;
-  transition: background-color 0.2s;
 }
 
-.resize-handle:hover {
-  background-color: rgba(0, 122, 204, 0.3);
+/* Особая обработка для свернутой навигации */
+nav.collapsed li a {
+  width: 70px;
 }

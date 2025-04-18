@@ -1,5 +1,6 @@
 import React from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { Minus, Square, X } from 'lucide-react';
 import './TopBar.css';
 
 export const TopBar: React.FC = () => {
@@ -22,13 +23,13 @@ export const TopBar: React.FC = () => {
       </div>
       <div className="topbar-right">
         <button className="window-control minimize" onClick={handleMinimize}>
-          &#x2212;
+          <Minus size={16} />
         </button>
         <button className="window-control maximize" onClick={handleMaximize}>
-          &#x25A1;
+          <Square size={16} />
         </button>
         <button className="window-control close" onClick={handleClose}>
-          &#x2715;
+          <X size={16} />
         </button>
       </div>
     </div>
