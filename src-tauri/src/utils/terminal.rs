@@ -46,7 +46,7 @@ pub async fn start_process(state: State<'_, PtyState>, app: AppHandle) -> Result
         .map_err(|e| e.to_string())?;
 
     let mut cmd = CommandBuilder::new("powershell.exe");
-    cmd.args(["-NoExit", "-Command", "chcp 65001; Set-Location C:\\Users; Clear-Host; Write-Host 'Терминал X-Avto готов к работе!' -ForegroundColor Green; Write-Host; Get-Location | Write-Host -NoNewline; Write-Host ' PS>' -NoNewline; "]);
+    cmd.args(["-NoExit", "-Command", "$OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::InputEncoding = [System.Text.Encoding]::UTF8; chcp 65001; Set-Location C:\\Users; Clear-Host; Write-Host 'Терминал X-Avto готов к работе!' -ForegroundColor Green; Write-Host; Get-Location | Write-Host -NoNewline; Write-Host ' PS>' -NoNewline; "]);
     
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     
@@ -157,4 +157,32 @@ pub async fn clear_terminal(state: State<'_, PtyState>) -> Result<(), String> {
     } else {
         Err("PTY writer not initialized".to_string())
     }
+}
+
+#[tauri::command]
+pub async fn close_terminal_process(state: State<'_, PtyState>) -> Result<(), String> {
+    println!("Попытка закрытия процесса терминала...");
+    
+    // Очистка writer
+    {
+        let mut writer_guard = state.writer.lock().await;
+        if let Some(writer) = writer_guard.as_mut() {
+            // Отправка команды выхода в PowerShell
+            let _ = writer.write_all("exit\r\n".as_bytes());
+            let _ = writer.flush();
+        }
+        // Освобождение ресурса
+        *writer_guard = None;
+        println!("Writer очищен");
+    }
+    
+    // Освобождение master PTY
+    {
+        let mut master_guard = state.master.lock().await;
+        *master_guard = None;
+        println!("Master PTY очищен");
+    }
+    
+    println!("Процесс терминала успешно закрыт");
+    Ok(())
 } 

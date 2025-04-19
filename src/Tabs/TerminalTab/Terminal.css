@@ -196,9 +196,59 @@
   text-align: right;
 }
 
-/* Добавленные стили для xterm */
+/* 
+ * ↓↓↓ НАСТРОЙКИ СТИЛЕЙ ТЕРМИНАЛА И ШРИФТА ↓↓↓
+ * Здесь вы можете изменить внешний вид и шрифт терминала через CSS 
+ */
 .xterm {
-  padding: 8px;
+  padding: 6px;
+  font-variant-ligatures: none;
+  font-feature-settings: normal;
+  font-smoothing: antialiased;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: 0.6px !important;
+  word-spacing: 0 !important;
+}
+
+/* Убедимся, что символы не сливаются */
+.xterm .xterm-rows {
+  letter-spacing: 0.6px !important;
+  font-feature-settings: "liga" 0;
+  font-variant-ligatures: none;
+}
+
+/* Фиксированная ширина ячеек */
+.xterm .xterm-rows .xterm-char-cell {
+  width: 8px !important;  /* Настройте под вашу ширину символа */
+  min-width: 8px !important;
+  display: inline-block !important;
+}
+
+.xterm-viewport {
+  overflow-y: auto !important;
+}
+
+.xterm-helper-textarea {
+  letter-spacing: 0.6px !important;
+  word-spacing: 0 !important;
+  line-height: 0.9 !important;
+}
+
+/* Компактные отступы для строк */
+.xterm-rows > * {
+  height: auto !important;
+}
+/* ↑↑↑ НАСТРОЙКИ СТИЛЕЙ ТЕРМИНАЛА И ШРИФТА ↑↑↑ */
+
+/* Улучшение внешнего вида курсора */
+.xterm-cursor-layer {
+  display: block;
+}
+
+.xterm-cursor {
+  background-color: #45fce4 !important;
+  border-color: #45fce4 !important;
 }
 
 .status-indicator {

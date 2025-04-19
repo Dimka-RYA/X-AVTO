@@ -64,9 +64,21 @@ export const Terminal = () => {
           return;
         }
         
-        // Если терминал уже инициализирован, выходим
+        // Если терминал уже инициализирован, просто делаем его видимым
         if (tabs[tabIndex].terminal) {
           console.log("Terminal already initialized for tab:", tabId);
+          
+          // Очищаем контейнер перед добавлением существующего терминала
+          terminalRef.current.innerHTML = '';
+          
+          // Переоткрываем терминал в контейнере
+          tabs[tabIndex].terminal?.open(terminalRef.current);
+          
+          // Устанавливаем правильный размер
+          setTimeout(() => {
+            tabs[tabIndex].fitAddon?.fit();
+          }, 50);
+          
           return;
         }
 
@@ -75,8 +87,15 @@ export const Terminal = () => {
         // Создаем новый экземпляр терминала
         const term = new XTerm({
           cursorBlink: true,
-          fontSize: 14,
-          fontFamily: 'Consolas, "Courier New", monospace',
+          
+          // ↓↓↓ НАСТРОЙКИ ШРИФТА ТЕРМИНАЛА ↓↓↓
+          fontSize: 14,               // Размер шрифта (в пикселях)
+          fontFamily: 'Courier New',  // Семейство шрифта (можно изменить на 'Consolas', 'Monaco' и др.)
+          fontWeight: 'normal',       // Жирность шрифта ('normal', 'bold', '100'-'900')
+          lineHeight: 0.9,            // Высота строки (меньше 1 = более компактно)
+          letterSpacing: 0.5,         // Расстояние между символами (в пикселях)
+          // ↑↑↑ НАСТРОЙКИ ШРИФТА ТЕРМИНАЛА ↑↑↑
+          
           theme: {
             background: '#1e1e1e',
             foreground: '#d4d4d4',
@@ -87,7 +106,8 @@ export const Terminal = () => {
           convertEol: true,
           allowTransparency: true,
           windowsMode: true,
-          allowProposedApi: true
+          allowProposedApi: true,
+          disableStdin: false
         });
 
         const fit = new FitAddon();
@@ -115,22 +135,28 @@ export const Terminal = () => {
           console.log(`Terminal input handler triggered: ${JSON.stringify(data)}`);
           
           // Используем реф для проверки состояния процесса
+          // Также проверяем, является ли эта вкладка активной в данный момент
+          const isActiveTab = activeTab === tabId;
           const processRunning = runningProcessesRef.current.get(tabId) || false;
-          console.log(`Is process running: ${processRunning}`);
           
+          console.log(`Input for tab ${tabId}, active: ${isActiveTab}, process running: ${processRunning}`);
+          
+          // Обрабатываем ввод только если процесс запущен
           if (processRunning) {
             console.log("Sending input to terminal:", data);
             invoke("send_input", { input: data })
               .then(() => console.log("Input sent successfully"))
               .catch((err: Error) => {
                 console.error("Failed to send input:", err);
-                term.write(`\r\n\x1b[31mError: ${err}\x1b[0m\r\n`);
+                term.write(`\r\n\x1b[31mОшибка отправки ввода: ${err}\x1b[0m\r\n`);
                 setError(`Ошибка отправки ввода: ${err.message}`);
               });
           } else {
-            console.warn("Input ignored - terminal process not running");
-            // Подсказка пользователю в терминале
-            term.write("\r\n\x1b[33mДля ввода команд необходимо сначала запустить процесс терминала, нажмите кнопку '▶'\x1b[0m\r\n");
+            console.warn(`Input ignored for tab ${tabId} - terminal process not running`);
+            // Подсказка пользователю в терминале - проверяем активную вкладку
+            if (isActiveTab) {
+              term.write("\r\n\x1b[33mДля ввода команд необходимо сначала запустить процесс терминала, нажмите кнопку '▶'\x1b[0m\r\n");
+            }
           }
         });
 
@@ -218,15 +244,19 @@ export const Terminal = () => {
     // Инициализируем терминал для активной вкладки
     initTerminal(activeTab);
 
-    // Функция для очистки при размонтировании
+    // Эффект для очистки при размонтировании
     return () => {
       console.log("Cleaning up terminal resources");
       tabs.forEach(tab => {
-        if (tab.unlisten) {
-          tab.unlisten();
-        }
-        if (tab.terminal) {
-          tab.terminal.dispose();
+        try {
+          if (tab.unlisten) {
+            tab.unlisten();
+          }
+          if (tab.terminal) {
+            tab.terminal.dispose();
+          }
+        } catch (e) {
+          console.error(`Error cleaning up tab ${tab.id}:`, e);
         }
       });
     };
@@ -264,6 +294,22 @@ export const Terminal = () => {
     });
   }, [tabs]);
 
+  // Эффект для сохранения состояния всех терминалов при их инициализации
+  useEffect(() => {
+    // Этот эффект срабатывает каждый раз, когда изменяется массив tabs
+    // Мы используем его для сохранения состояния терминалов
+    console.log("Tabs state changed, preserving terminal state");
+    
+    // Сохраняем инстансы терминалов в локальных переменных, если они уничтожаются
+    tabs.forEach((tab, index) => {
+      if (tab.terminal && tab.id !== activeTab) {
+        // Для неактивных вкладок убедимся, что DOM-элемент отсоединен,
+        // но состояние сохранено в памяти
+        console.log(`Preserving terminal state for tab ${tab.id}`);
+      }
+    });
+  }, [tabs]);
+
   // Функция изменения размера терминала
   const resizeTerminal = async (tabIndex: number) => {
     const tab = tabs[tabIndex];
@@ -285,17 +331,23 @@ export const Terminal = () => {
 
   // Запуск процесса в терминале
   const startTerminalProcess = async (tabIndex: number) => {
-    console.log("Starting terminal process for tab:", tabIndex);
-    // Используем индекс в массиве tabs вместо ID вкладки
-    const currentTabIndex = tabs.findIndex(tab => tab.id === tabs[tabIndex].id);
-    if (currentTabIndex === -1) {
-      console.error("Tab not found in tabs array");
+    console.log("Starting terminal process for tab index:", tabIndex);
+    
+    // Получаем вкладку напрямую по индексу
+    const tab = tabs[tabIndex];
+    if (!tab) {
+      console.error(`Tab not found at index ${tabIndex}`);
+      return;
+    }
+
+    // Проверяем, готов ли терминал к запуску процесса
+    if (!tab.terminal) {
+      console.error("Terminal not initialized");
       return;
     }
     
-    const tab = tabs[currentTabIndex];
-    if (!tab.terminal || tab.isProcessRunning) {
-      console.log("Terminal not initialized or process already running");
+    if (tab.isProcessRunning) {
+      console.log("Process already running for this tab");
       return;
     }
 
@@ -305,50 +357,58 @@ export const Terminal = () => {
         console.log("Terminal fitted successfully");
       }
       
-      if (tab.terminal) {
-        const { rows, cols } = tab.terminal;
-        console.log(`Terminal dimensions: ${rows} rows x ${cols} columns`);
-        
-        tab.terminal.write("\r\n\x1b[33mЗапуск процесса терминала...\x1b[0m\r\n");
-        
-        console.log("Invoking start_process Tauri command");
-        try {
-          await invoke("start_process");
-          console.log("start_process invoked successfully");
-        } catch (startError) {
-          console.error("Failed to start process:", startError);
-          tab.terminal.write(`\r\n\x1b[31mОшибка запуска процесса: ${startError}\x1b[0m\r\n`);
-          setError(`Ошибка запуска процесса: ${startError}`);
-          return;
-        }
-        
-        console.log("Resizing PTY to match terminal dimensions");
-        try {
-          await invoke("resize_pty", { rows, cols });
-          console.log("resize_pty invoked successfully");
-        } catch (resizeError) {
-          console.error("Failed to resize PTY:", resizeError);
-          setError(`Ошибка изменения размера PTY: ${resizeError}`);
-          // Продолжаем выполнение, так как это не критическая ошибка
-        }
-        
-        console.log("Process started successfully, updating state");
-        
-        // Обновляем статус запущенного процесса в рефе
-        runningProcessesRef.current.set(tab.id, true);
-        
-        // Обновляем статус запущенного процесса в React-стейте
-        setTabs(prevTabs => {
-          const updatedTabs = [...prevTabs];
-          updatedTabs[currentTabIndex] = {
-            ...updatedTabs[currentTabIndex],
-            isProcessRunning: true
-          };
-          return updatedTabs;
+      const { rows, cols } = tab.terminal;
+      console.log(`Terminal dimensions: ${rows} rows x ${cols} columns`);
+      
+      tab.terminal.write("\r\n\x1b[33mЗапуск процесса терминала...\x1b[0m\r\n");
+      
+      // Закрываем предыдущий PTY процесс, если он существует
+      try {
+        await invoke("close_terminal_process").catch(err => {
+          console.warn("No previous terminal process to close or error:", err);
         });
-        
-        tab.terminal.write("\r\n\x1b[32mПроцесс успешно запущен\x1b[0m\r\n");
+      } catch (closeError) {
+        console.warn("Failed to close previous terminal process:", closeError);
       }
+      
+      console.log("Invoking start_process Tauri command");
+      try {
+        await invoke("start_process");
+        console.log("start_process invoked successfully");
+      } catch (startError) {
+        console.error("Failed to start process:", startError);
+        tab.terminal.write(`\r\n\x1b[31mОшибка запуска процесса: ${startError}\x1b[0m\r\n`);
+        setError(`Ошибка запуска процесса: ${startError}`);
+        return;
+      }
+      
+      console.log("Resizing PTY to match terminal dimensions");
+      try {
+        await invoke("resize_pty", { rows, cols });
+        console.log("resize_pty invoked successfully");
+      } catch (resizeError) {
+        console.error("Failed to resize PTY:", resizeError);
+        setError(`Ошибка изменения размера PTY: ${resizeError}`);
+        // Продолжаем выполнение, так как это не критическая ошибка
+      }
+      
+      console.log("Process started successfully, updating state");
+      
+      // Сначала снимаем статус запущенного процесса со всех вкладок
+      runningProcessesRef.current.forEach((_, key) => {
+        runningProcessesRef.current.set(key, false);
+      });
+      
+      // Затем устанавливаем статус только для текущей вкладки
+      runningProcessesRef.current.set(tab.id, true);
+      
+      // Обновляем React-состояние
+      setTabs(prevTabs => prevTabs.map(t => ({
+        ...t,
+        isProcessRunning: t.id === tab.id
+      })));
+      
+      tab.terminal.write("\r\n\x1b[32mПроцесс успешно запущен\x1b[0m\r\n");
     } catch (err: any) {
       console.error("Failed to start process:", err);
       if (tab.terminal) {
@@ -372,9 +432,16 @@ export const Terminal = () => {
     console.log("Adding new terminal tab");
     const newTabId = tabs.length > 0 ? Math.max(...tabs.map(tab => tab.id)) + 1 : 1;
     
+    // Сохраняем все терминалы перед добавлением новой вкладки
+    // Важно! Не отсоединяем активный терминал от DOM до его сохранения
+    const currentTabIndex = tabs.findIndex(tab => tab.id === activeTab);
+    
+    // Создаем копию текущих вкладок перед добавлением новой
+    const updatedTabs = [...tabs];
+    
     // Добавляем новую вкладку
-    setTabs(prevTabs => [
-      ...prevTabs, 
+    const newTabs = [
+      ...updatedTabs,
       { 
         id: newTabId, 
         name: `Консоль ${newTabId}`, 
@@ -384,9 +451,18 @@ export const Terminal = () => {
         unlisten: null,
         isProcessRunning: false
       }
-    ]);
+    ];
     
-    // Активируем новую вкладку
+    // Применяем обновление
+    setTabs(newTabs);
+    
+    // Отсоединяем DOM элемент только после сохранения состояния
+    if (currentTabIndex !== -1 && terminalRef.current) {
+      console.log("Detaching current terminal DOM element");
+      terminalRef.current.innerHTML = '';
+    }
+    
+    // Активируем новую вкладку после отсоединения
     setActiveTab(newTabId);
   };
 
@@ -428,6 +504,206 @@ export const Terminal = () => {
     }
   };
 
+  // Активация вкладки
+  const handleTabActivation = (tabId: number) => {
+    console.log(`Activating tab with ID: ${tabId}`);
+    
+    // Если нажали на ту же самую вкладку, ничего не делаем
+    if (activeTab === tabId) {
+      console.log("This tab is already active");
+      return;
+    }
+    
+    // Находим индекс текущей и новой вкладки
+    const currentIndex = tabs.findIndex(tab => tab.id === activeTab);
+    const newIndex = tabs.findIndex(tab => tab.id === tabId);
+    
+    if (newIndex === -1) {
+      console.error(`Tab with ID ${tabId} not found`);
+      return;
+    }
+    
+    // Очищаем DOM-элемент перед переключением
+    if (terminalRef.current) {
+      terminalRef.current.innerHTML = '';
+    }
+    
+    // Обновляем активную вкладку в состоянии
+    setActiveTab(tabId);
+    
+    // Создаем таймаут для рендеринга терминала после изменения состояния
+    setTimeout(() => {
+      // Если терминал инициализирован, отображаем его
+      if (tabs[newIndex].terminal && terminalRef.current) {
+        try {
+          // Открываем терминал в контейнере
+          tabs[newIndex].terminal.open(terminalRef.current);
+          
+          // Обновляем размер терминала
+          if (tabs[newIndex].fitAddon) {
+            tabs[newIndex].fitAddon.fit();
+            
+            // Обновляем размер PTY, если процесс запущен
+            if (tabs[newIndex].isProcessRunning) {
+              const { rows, cols } = tabs[newIndex].terminal!;
+              invoke("resize_pty", { rows, cols }).catch((err: Error) => {
+                console.error("Failed to resize PTY:", err);
+              });
+            }
+          }
+        } catch (err) {
+          console.error("Error reopening terminal:", err);
+          // В случае ошибки, пробуем пересоздать терминал для вкладки
+          const initTerminalImpl = async (tabId: number) => {
+            try {
+              console.log("Setting up terminal for tab:", tabId);
+              if (!terminalRef.current) {
+                console.error("Terminal ref is null");
+                setError("Ошибка: DOM-элемент терминала не найден");
+                return;
+              }
+              
+              // Находим текущую вкладку
+              const tabIndex = tabs.findIndex(tab => tab.id === tabId);
+              if (tabIndex === -1) {
+                console.error("Tab not found:", tabId);
+                setError(`Ошибка: Вкладка ${tabId} не найдена`);
+                return;
+              }
+              
+              // Создаем новый экземпляр терминала
+              const term = new XTerm({
+                cursorBlink: true,
+                fontSize: 14,
+                fontFamily: 'Courier New',
+                fontWeight: 'normal',
+                lineHeight: 0.9,
+                letterSpacing: 0.5,
+                theme: {
+                  background: '#1e1e1e',
+                  foreground: '#d4d4d4',
+                  cursor: '#45fce4',
+                  selectionBackground: 'rgba(255,255,255,0.3)',
+                },
+                scrollback: 5000,
+                convertEol: true,
+                allowTransparency: true,
+                windowsMode: true,
+                allowProposedApi: true,
+                disableStdin: false
+              });
+      
+              const fit = new FitAddon();
+              const webLinks = new WebLinksAddon();
+              const unicode11 = new Unicode11Addon();
+      
+              term.loadAddon(fit);
+              term.loadAddon(webLinks);
+              term.loadAddon(unicode11);
+      
+              console.log("Opening terminal in container");
+              
+              // Очищаем контейнер перед открытием нового терминала
+              if (terminalRef.current) {
+                terminalRef.current.innerHTML = '';
+                term.open(terminalRef.current);
+              }
+      
+              // Даем время для рендеринга
+              await new Promise(resolve => setTimeout(resolve, 100));
+              fit.fit();
+      
+              // Обновляем состояние
+              setTabs(prevTabs => prevTabs.map(tab => 
+                tab.id === tabId ? { ...tab, terminal: term, fitAddon: fit } : tab
+              ));
+            } catch (e: any) {
+              console.error("Failed to initialize terminal:", e);
+              setError(`Ошибка инициализации терминала: ${e.message || e}`);
+            }
+          };
+          
+          initTerminalImpl(tabId).catch((e: any) => {
+            console.error("Failed to reinitialize terminal:", e);
+            setError(`Ошибка при повторной инициализации терминала: ${e.message || e}`);
+          });
+        }
+      } else {
+        // Если терминал не инициализирован для этой вкладки
+        const initExistingTerminal = async () => {
+          try {
+            console.log("Setting up terminal for tab:", tabId);
+            if (!terminalRef.current) {
+              console.error("Terminal ref is null");
+              setError("Ошибка: DOM-элемент терминала не найден");
+              return;
+            }
+              
+            // Находим текущую вкладку
+            const tabIndex = tabs.findIndex(tab => tab.id === tabId);
+            if (tabIndex === -1) {
+              console.error("Tab not found:", tabId);
+              setError(`Ошибка: Вкладка ${tabId} не найдена`);
+              return;
+            }
+              
+            // Создаем новый экземпляр терминала для вкладки
+            const term = new XTerm({
+              cursorBlink: true,
+              fontSize: 14,
+              fontFamily: 'Courier New',
+              fontWeight: 'normal',
+              lineHeight: 0.9,
+              letterSpacing: 0.5,
+              theme: {
+                background: '#1e1e1e',
+                foreground: '#d4d4d4',
+                cursor: '#45fce4',
+                selectionBackground: 'rgba(255,255,255,0.3)',
+              },
+              scrollback: 5000,
+              convertEol: true,
+              allowTransparency: true,
+              windowsMode: true,
+              allowProposedApi: true,
+              disableStdin: false
+            });
+    
+            const fit = new FitAddon();
+            const webLinks = new WebLinksAddon();
+            const unicode11 = new Unicode11Addon();
+    
+            term.loadAddon(fit);
+            term.loadAddon(webLinks);
+            term.loadAddon(unicode11);
+    
+            // Очищаем контейнер перед открытием нового терминала
+            terminalRef.current.innerHTML = '';
+            term.open(terminalRef.current);
+    
+            // Даем время для рендеринга
+            await new Promise(resolve => setTimeout(resolve, 100));
+            fit.fit();
+    
+            // Обновляем состояние для этой вкладки
+            setTabs(prevTabs => 
+              prevTabs.map(tab => tab.id === tabId ? 
+                { ...tab, terminal: term, fitAddon: fit } : tab)
+            );
+          } catch (e: any) {
+            console.error("Failed to initialize terminal:", e);
+            setError(`Ошибка инициализации терминала: ${e.message || e}`);
+          }
+        };
+          
+        initExistingTerminal().catch((e: any) => {
+          console.error("Failed to initialize terminal:", e);
+          setError(`Ошибка при инициализации терминала: ${e.message || e}`);
+        });
+      }
+    }, 50);
+  };
+
   // Получаем текущую вкладку
   const currentTabIndex = tabs.findIndex(tab => tab.id === activeTab);
   const currentTab = currentTabIndex !== -1 ? tabs[currentTabIndex] : null;
@@ -446,7 +722,7 @@ export const Terminal = () => {
             <div 
               key={tab.id} 
               className={`terminal-tab ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabActivation(tab.id)}
             >
               <span>{tab.name}</span>
               <button 

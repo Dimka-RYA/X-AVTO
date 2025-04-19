@@ -54,6 +54,7 @@ fn main() {
             utils::terminal::send_input,
             utils::terminal::change_directory,
             utils::terminal::clear_terminal,
+            utils::terminal::close_terminal_process,
             
             // Компоненты интерфейса
             minimize_window,
