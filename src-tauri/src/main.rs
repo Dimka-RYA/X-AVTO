@@ -2,13 +2,24 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod components;
+mod utils;
 mod ports;
+mod components;
 
-use tauri::{Builder, Manager};
+use std::sync::Arc;
+use tauri::{async_runtime::Mutex, Builder, Manager};
+use utils::terminal::PtyState;
+
 // Import the commands explicitly
 use ports::commands::{get_network_ports, close_port, refresh_ports_command};
 use ports::start_ports_refresh_thread;
+use components::topbar_func::{minimize_window, toggle_maximize, close_window};
+
+// Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
+#[tauri::command]
+fn greet(name: &str) -> String {
+    format!("Hello, {}! You've been greeted from Rust!", name)
+}
 
 fn main() {
     Builder::default()
@@ -32,10 +43,24 @@ fn main() {
             Ok(())
         })
         .manage(ports::create_ports_cache())
+        .manage(PtyState {
+            master: Arc::new(Mutex::new(None)),
+            writer: Arc::new(Mutex::new(None)),
+        })
         .invoke_handler(tauri::generate_handler![
-            components::topbar_func::minimize_window,
-            components::topbar_func::toggle_maximize,
-            components::topbar_func::close_window,
+            // Терминал
+            utils::terminal::start_process,
+            utils::terminal::resize_pty,
+            utils::terminal::send_input,
+            utils::terminal::change_directory,
+            utils::terminal::clear_terminal,
+            
+            // Компоненты интерфейса
+            minimize_window,
+            toggle_maximize,
+            close_window,
+            
+            // Порты
             get_network_ports,
             close_port,
             refresh_ports_command,

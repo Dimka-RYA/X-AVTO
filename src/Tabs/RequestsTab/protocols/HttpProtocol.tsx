@@ -1,47 +1,49 @@
 import React, { useState, useEffect } from 'react';
-import { ProtocolType, RequestMethod, AuthParams, RequestAuth } from '../types';
+import { ProtocolType, RequestMethod, AuthParams, RequestAuth, RequestTabType } from '../types';
 
 interface HttpProtocolProps {
-  url: string;
-  setUrl: (url: string) => void;
-  method: RequestMethod;
-  setMethod: (method: RequestMethod) => void;
-  onSendRequest: () => void;
-  params: Record<string, string>;
-  setParams: (params: Record<string, string>) => void;
-  headers: Record<string, string>;
-  setHeaders: (headers: Record<string, string>) => void;
-  body: string;
-  setBody: (body: string) => void;
-  bodyType: string;
-  setBodyType: (type: string) => void;
-  auth: RequestAuth;
-  setAuth: (auth: RequestAuth) => void;
+  requestUrl: string;
+  setRequestUrl: (url: string) => void;
+  activeMethod: RequestMethod;
+  setActiveMethod: (method: RequestMethod) => void;
+  handleSendRequest: () => void;
+  requestParams: Record<string, string>;
+  setRequestParams: (params: Record<string, string>) => void;
+  requestHeaders: Record<string, string>;
+  setRequestHeaders: (headers: Record<string, string>) => void;
+  requestBody: string;
+  setRequestBody: (body: string) => void;
+  requestAuth: RequestAuth;
+  setRequestAuth: (auth: RequestAuth) => void;
+  activeRequestTab: RequestTabType;
+  setActiveRequestTab: (tab: RequestTabType) => void;
+  isLoading: boolean;
 }
 
 const HttpProtocol: React.FC<HttpProtocolProps> = ({
-  url,
-  setUrl,
-  method,
-  setMethod,
-  onSendRequest,
-  params,
-  setParams,
-  headers,
-  setHeaders,
-  body,
-  setBody,
-  bodyType,
-  setBodyType,
-  auth,
-  setAuth
+  requestUrl,
+  setRequestUrl,
+  activeMethod,
+  setActiveMethod,
+  handleSendRequest,
+  requestParams,
+  setRequestParams,
+  requestHeaders,
+  setRequestHeaders,
+  requestBody,
+  setRequestBody,
+  requestAuth,
+  setRequestAuth,
+  activeRequestTab,
+  setActiveRequestTab,
+  isLoading
 }) => {
-  const [activeTab, setActiveTab] = useState<'params' | 'body' | 'headers' | 'auth'>('params');
+  const [bodyType, setBodyType] = useState<string>('none');
   const [paramRows, setParamRows] = useState<Array<{ key: string; value: string; id: string }>>(
-    Object.entries(params).map(([key, value]) => ({ key, value, id: Math.random().toString() }))
+    requestParams ? Object.entries(requestParams).map(([key, value]) => ({ key, value, id: Math.random().toString() })) : []
   );
   const [headerRows, setHeaderRows] = useState<Array<{ key: string; value: string; id: string }>>(
-    Object.entries(headers).map(([key, value]) => ({ key, value, id: Math.random().toString() }))
+    requestHeaders ? Object.entries(requestHeaders).map(([key, value]) => ({ key, value, id: Math.random().toString() })) : []
   );
 
   const handleAddParam = () => {
@@ -81,8 +83,8 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
         paramsObject[row.key] = row.value;
       }
     });
-    setParams(paramsObject);
-  }, [paramRows, setParams]);
+    setRequestParams(paramsObject);
+  }, [paramRows, setRequestParams]);
 
   useEffect(() => {
     const headersObject: Record<string, string> = {};
@@ -91,18 +93,18 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
         headersObject[row.key] = row.value;
       }
     });
-    setHeaders(headersObject);
-  }, [headerRows, setHeaders]);
+    setRequestHeaders(headersObject);
+  }, [headerRows, setRequestHeaders]);
 
   const handleAuthTypeChange = (type: 'none' | 'basic' | 'bearer' | 'apiKey') => {
-    setAuth({ ...auth, type });
+    setRequestAuth({ ...requestAuth, type });
   };
 
   const handleAuthParamChange = (key: keyof AuthParams, value: string) => {
-    setAuth({
-      ...auth,
+    setRequestAuth({
+      ...requestAuth,
       params: {
-        ...auth.params,
+        ...requestAuth.params,
         [key]: value
       }
     });
@@ -113,9 +115,9 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
       <div className="request-url-bar">
         <div className="method-selector">
           <select 
-            className={`method-select method-${method.toLowerCase()}`}
-            value={method}
-            onChange={(e) => setMethod(e.target.value as RequestMethod)}
+            className={`method-select method-${activeMethod.toLowerCase()}`}
+            value={activeMethod}
+            onChange={(e) => setActiveMethod(e.target.value as RequestMethod)}
           >
             <option value="GET">GET</option>
             <option value="POST">POST</option>
@@ -129,42 +131,42 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
             type="text"
             className="url-input"
             placeholder="Enter request URL"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            value={requestUrl}
+            onChange={(e) => setRequestUrl(e.target.value)}
           />
         </div>
-        <button className="send-btn" onClick={onSendRequest}>Send</button>
+        <button className="send-btn" onClick={handleSendRequest}>Send</button>
       </div>
 
       <div className="request-tabs">
         <button 
-          className={`tab-btn ${activeTab === 'params' ? 'active' : ''}`}
-          onClick={() => setActiveTab('params')}
+          className={`tab-btn ${activeRequestTab === 'Параметры' ? 'active' : ''}`}
+          onClick={() => setActiveRequestTab('Параметры')}
         >
           Params
         </button>
         <button 
-          className={`tab-btn ${activeTab === 'body' ? 'active' : ''}`}
-          onClick={() => setActiveTab('body')}
+          className={`tab-btn ${activeRequestTab === 'Тело' ? 'active' : ''}`}
+          onClick={() => setActiveRequestTab('Тело')}
         >
           Body
         </button>
         <button 
-          className={`tab-btn ${activeTab === 'headers' ? 'active' : ''}`}
-          onClick={() => setActiveTab('headers')}
+          className={`tab-btn ${activeRequestTab === 'Заголовки' ? 'active' : ''}`}
+          onClick={() => setActiveRequestTab('Заголовки')}
         >
           Headers
         </button>
         <button 
-          className={`tab-btn ${activeTab === 'auth' ? 'active' : ''}`}
-          onClick={() => setActiveTab('auth')}
+          className={`tab-btn ${activeRequestTab === 'Авторизация' ? 'active' : ''}`}
+          onClick={() => setActiveRequestTab('Авторизация')}
         >
           Authorization
         </button>
       </div>
 
       <div className="tab-content">
-        {activeTab === 'params' && (
+        {activeRequestTab === 'Параметры' && (
           <div className="params-container">
             <div className="param-rows">
               {paramRows.map((param) => (
@@ -193,7 +195,7 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
           </div>
         )}
 
-        {activeTab === 'body' && (
+        {activeRequestTab === 'Тело' && (
           <div className="body-container">
             <div className="body-type-selector">
               <select
@@ -212,8 +214,8 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
               <div className="body-editor">
                 <textarea
                   className="body-input"
-                  value={body}
-                  onChange={(e) => setBody(e.target.value)}
+                  value={requestBody}
+                  onChange={(e) => setRequestBody(e.target.value)}
                   placeholder={bodyType === 'json' ? '{\n  "key": "value"\n}' : 'Enter request body'}
                 />
               </div>
@@ -221,7 +223,7 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
           </div>
         )}
 
-        {activeTab === 'headers' && (
+        {activeRequestTab === 'Заголовки' && (
           <div className="headers-container">
             <div className="header-rows">
               {headerRows.map((header) => (
@@ -250,12 +252,12 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
           </div>
         )}
 
-        {activeTab === 'auth' && (
+        {activeRequestTab === 'Авторизация' && (
           <div className="auth-container">
             <div className="auth-type-selector">
               <div className="auth-type-label">Auth Type:</div>
               <select
-                value={auth.type}
+                value={requestAuth.type}
                 onChange={(e) => handleAuthTypeChange(e.target.value as 'none' | 'basic' | 'bearer' | 'apiKey')}
                 className="auth-type-select"
               >
@@ -266,14 +268,14 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
               </select>
             </div>
 
-            {auth.type === 'basic' && (
+            {requestAuth.type === 'basic' && (
               <div className="auth-inputs">
                 <div className="auth-row">
                   <div className="auth-label">Username:</div>
                   <input
                     type="text"
                     className="auth-input"
-                    value={auth.params.username || ''}
+                    value={requestAuth.params.username || ''}
                     onChange={(e) => handleAuthParamChange('username', e.target.value)}
                   />
                 </div>
@@ -282,35 +284,35 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
                   <input
                     type="password"
                     className="auth-input"
-                    value={auth.params.password || ''}
+                    value={requestAuth.params.password || ''}
                     onChange={(e) => handleAuthParamChange('password', e.target.value)}
                   />
                 </div>
               </div>
             )}
 
-            {auth.type === 'bearer' && (
+            {requestAuth.type === 'bearer' && (
               <div className="auth-inputs">
                 <div className="auth-row">
                   <div className="auth-label">Token:</div>
                   <input
                     type="text"
                     className="auth-input"
-                    value={auth.params.token || ''}
+                    value={requestAuth.params.token || ''}
                     onChange={(e) => handleAuthParamChange('token', e.target.value)}
                   />
                 </div>
               </div>
             )}
 
-            {auth.type === 'apiKey' && (
+            {requestAuth.type === 'apiKey' && (
               <div className="auth-inputs">
                 <div className="auth-row">
                   <div className="auth-label">Key:</div>
                   <input
                     type="text"
                     className="auth-input"
-                    value={auth.params.key || ''}
+                    value={requestAuth.params.key || ''}
                     onChange={(e) => handleAuthParamChange('key', e.target.value)}
                   />
                 </div>
@@ -319,7 +321,7 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
                   <input
                     type="text"
                     className="auth-input"
-                    value={auth.params.value || ''}
+                    value={requestAuth.params.value || ''}
                     onChange={(e) => handleAuthParamChange('value', e.target.value)}
                   />
                 </div>
@@ -327,7 +329,7 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
                   <div className="auth-label">Add to:</div>
                   <select
                     className="auth-select"
-                    value={auth.params.addTo || 'header'}
+                    value={requestAuth.params.addTo || 'header'}
                     onChange={(e) => handleAuthParamChange('addTo', e.target.value)}
                   >
                     <option value="header">Header</option>
@@ -343,4 +345,4 @@ const HttpProtocol: React.FC<HttpProtocolProps> = ({
   );
 };
 
-export default HttpProtocol;
+export { HttpProtocol };

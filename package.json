@@ -10,13 +10,17 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2",
+    "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-opener": "^2",
     "lucide-react": "^0.488.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.4.0",
-    "xadmin": "file:"
+    "xadmin": "file:",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0",
+    "xterm-addon-unicode11": "^0.6.0",
+    "xterm-addon-web-links": "^0.9.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
