@@ -32,7 +32,10 @@ pub async fn resize_pty(state: State<'_, PtyState>, rows: u16, cols: u16) -> Res
 
 #[tauri::command]
 pub async fn start_process(state: State<'_, PtyState>, app: AppHandle) -> Result<(), String> {
+    println!("Starting terminal process...");
+    
     let pty_system = native_pty_system();
+    
     let pair = pty_system
         .openpty(PtySize {
             rows: 24,
@@ -43,8 +46,11 @@ pub async fn start_process(state: State<'_, PtyState>, app: AppHandle) -> Result
         .map_err(|e| e.to_string())?;
 
     let mut cmd = CommandBuilder::new("powershell.exe");
-    cmd.args(["-NoExit", "-Command", "chcp 65001; Set-Location C:\\Users; "]); // Устанавливаем начальную директорию
+    cmd.args(["-NoExit", "-Command", "chcp 65001; Set-Location C:\\Users; Clear-Host; Write-Host 'Терминал X-Avto готов к работе!' -ForegroundColor Green; Write-Host; Get-Location | Write-Host -NoNewline; Write-Host ' PS>' -NoNewline; "]);
+    
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    
+    println!("PowerShell process spawned");
 
     let master = pair.master;
     let mut reader = master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -55,32 +61,51 @@ pub async fn start_process(state: State<'_, PtyState>, app: AppHandle) -> Result
 
     let app_handle = app.clone();
 
+    // Поток для чтения вывода
     spawn(async move {
+        println!("Starting read thread");
         let mut buffer = [0u8; 4096];
+        
         loop {
             match reader.read(&mut buffer) {
-                Ok(n) if n > 0 => {
-                    let output = String::from_utf8_lossy(&buffer[..n]).to_string();
-                    println!("Emitting output: {:?}", output);
-                    app_handle.emit("pty-output", output).unwrap();
-                }
-                Ok(_) => {
-                    eprintln!("EOF reached");
+                Ok(0) => {
+                    println!("EOF reached in terminal reader");
                     break;
-                }
+                },
+                Ok(n) => {
+                    let output = String::from_utf8_lossy(&buffer[..n]).to_string();
+                    println!("Terminal output received, length: {} bytes", n);
+                    if output.len() < 200 {
+                        println!("Output content: {:?}", output);
+                    } else {
+                        println!("Output content (first 200 chars): {:?}", &output[..200]);
+                    }
+                    
+                    // Отправка вывода в клиент
+                    match app_handle.emit("pty-output", output.clone()) {
+                        Ok(_) => println!("Successfully emitted terminal output to client"),
+                        Err(e) => eprintln!("Error emitting output: {}", e),
+                    }
+                },
                 Err(e) => {
-                    eprintln!("Read error: {}", e);
+                    eprintln!("Error reading from terminal: {}", e);
                     break;
                 }
             }
         }
+        
+        println!("Terminal reader thread exited");
     });
 
+    // Поток для ожидания завершения процесса
     spawn(async move {
-        let status = child.wait();
-        println!("Child process exited with status: {:?}", status);
+        match child.wait() {
+            Ok(status) => println!("Terminal process exited with status: {:?}", status),
+            Err(e) => eprintln!("Error waiting for terminal process: {}", e),
+        }
     });
 
+    println!("Terminal process setup complete");
     Ok(())
 }
 

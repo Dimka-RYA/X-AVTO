@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './Requests.css';
-import HttpProtocol from './protocols/HttpProtocol';
+import { HttpProtocol } from './protocols/HttpProtocol';
 import { GraphQLProtocol } from './protocols/GraphQLProtocol';
 import { ResponsePanel } from './components/ResponsePanel';
 import { sendHttpRequest } from './services/HttpService';
@@ -124,21 +124,22 @@ export const RequestsTab: React.FC = () => {
       
       {activeProtocol === 'HTTP' ? (
         <HttpProtocol 
-          url={requestUrl}
-          setUrl={setRequestUrl}
-          method={activeMethod}
-          setMethod={setActiveMethod}
-          body={requestBody}
-          setBody={setRequestBody}
-          bodyType={bodyType}
-          setBodyType={setBodyType}
-          headers={requestHeaders}
-          setHeaders={setRequestHeaders}
-          params={requestParams}
-          setParams={setRequestParams}
-          auth={requestAuth}
-          setAuth={setRequestAuth}
-          onSendRequest={handleHttpRequest}
+          requestUrl={requestUrl}
+          setRequestUrl={setRequestUrl}
+          activeMethod={activeMethod}
+          setActiveMethod={setActiveMethod}
+          requestBody={requestBody}
+          setRequestBody={setRequestBody}
+          requestHeaders={requestHeaders}
+          setRequestHeaders={setRequestHeaders}
+          requestParams={requestParams}
+          setRequestParams={setRequestParams}
+          requestAuth={requestAuth}
+          setRequestAuth={setRequestAuth}
+          handleSendRequest={handleHttpRequest}
+          isLoading={isLoading}
+          activeRequestTab={activeRequestTab}
+          setActiveRequestTab={setActiveRequestTab}
         />
       ) : activeProtocol === 'GraphQL' ? (
         <GraphQLProtocol 
