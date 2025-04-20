@@ -229,6 +229,7 @@
   flex-direction: column;
   border-bottom: 1px solid #333;
   font-size: 12px;
+  position: relative;
 }
 
 .history-item:last-child {
@@ -244,15 +245,18 @@
   font-size: 12px;
 }
 
-.command-status {
-  margin-right: 10px;
-  color: #42b983;
-}
-
 .command-time {
   color: #999;
   font-size: 11px;
   text-align: right;
+}
+
+.command-status {
+  position: absolute;
+  right: 10px;
+  top: 8px;
+  font-weight: bold;
+  font-size: 14px;
 }
 
 .status-indicator {

@@ -34,7 +34,8 @@ interface IssueInfo {
 interface TerminalCommand {
   command: string;
   time: string;
-  status?: string;
+  status?: 'success' | 'error' | 'running' | null;
+  exitCode?: number | null;
 }
 
 // Интерфейс для данных вкладки терминала
@@ -176,7 +177,7 @@ export const Terminal = () => {
     }
     
     try {
-      // Создаем новый слушатель
+      // Создаем слушатель для вывода терминала
       const unlisten = await listen<[number, string]>("pty-output", (event) => {
         if (!event.payload || !Array.isArray(event.payload) || event.payload.length !== 2) {
           console.warn("Invalid terminal output format:", event.payload);
@@ -197,6 +198,62 @@ export const Terminal = () => {
         
         // Обновляем отслеживаемый вывод
         outputTrackerRef.current.set(terminalId, { lastOutput: output, lastTime: now });
+        
+        // Определение статуса команды из вывода терминала
+        const detectCommandStatus = (output: string) => {
+          // Сначала проверяем на наличие явных ошибок
+          // Различные шаблоны сообщений об ошибках PowerShell
+          if (output.includes('ошибка:') || 
+              output.includes('Error:') ||
+              output.includes('Exception') ||
+              output.includes('is not recognized') ||
+              output.includes('не распознано') ||
+              output.includes('incorrect') ||
+              output.includes('неверный') ||
+              output.includes('не является') ||
+              output.includes('не найден') ||
+              output.includes('not found') ||
+              output.includes('Invalid') ||
+              output.includes('failed') ||
+              output.includes('failure') ||
+              output.includes('ошибка в программе') ||
+              output.includes('не удалось') ||
+              output.includes('не может') ||
+              output.includes('CommandNotFoundException') ||
+              output.includes('Не удается найти') ||
+              (output.includes('строка:') && output.includes('знак:')) || // PowerShell показывает ошибки так
+              (output.includes('CategoryInfo') && output.includes('ErrorRecord'))) {
+            return { status: 'error' as const, exitCode: 1 };
+          }
+          
+          // Ищем коды завершения в выводе PowerShell
+          if (output.includes('ExitCode=0') && !output.includes('error') && !output.includes('ошибка')) {
+            return { status: 'success' as const, exitCode: 0 };
+          } else if (output.match(/ExitCode=(\d+)/)) {
+            const match = output.match(/ExitCode=(\d+)/);
+            const exitCode = match ? parseInt(match[1]) : 1;
+            return exitCode === 0 ? 
+              { status: 'success' as const, exitCode: 0 } : 
+              { status: 'error' as const, exitCode };
+          }
+          
+          // Если видим приглашение ввода после команды и нет ошибок, вероятно команда успешно завершилась
+          if (output.includes('PS C:') && 
+              !output.includes('строка:') && 
+              !output.includes('CategoryInfo') &&
+              !output.includes('ошибка') &&
+              !output.includes('error') &&
+              !output.includes('wrong') &&
+              !output.includes('Не удалось') &&
+              !output.includes('cannot')) {
+            return { status: 'success' as const, exitCode: 0 };
+          }
+          
+          return null;
+        };
+        
+        // Проверяем вывод на наличие статусов команд
+        const statusInfo = detectCommandStatus(output);
         
         // Используем актуальное состояние из setTabs
         setTabs(prevTabs => {
@@ -235,6 +292,29 @@ export const Terminal = () => {
           }
           
           const tab = prevTabs[tabIndex];
+          
+          // Если обнаружен статус и есть история команд, обновляем статус последней команды
+          if (statusInfo && tab.history.length > 0) {
+            const updatedTabs = [...prevTabs];
+            const lastCommandIndex = tab.history.length - 1;
+            const lastCommand = tab.history[lastCommandIndex];
+            
+            // Обновляем только если команда всё ещё в статусе 'running'
+            if (lastCommand.status === 'running') {
+              updatedTabs[tabIndex] = {
+                ...updatedTabs[tabIndex],
+                history: [
+                  ...tab.history.slice(0, lastCommandIndex),
+                  {
+                    ...lastCommand,
+                    status: statusInfo.status,
+                    exitCode: statusInfo.exitCode
+                  }
+                ]
+              };
+              return updatedTabs;
+            }
+          }
           
           // Если терминал существует, отправляем вывод
           if (tab.terminal) {
@@ -297,15 +377,16 @@ export const Terminal = () => {
         second: '2-digit'
       });
       
-      // Добавляем команду в историю
+      // Добавляем команду в историю с начальным статусом
       const updatedTabs = [...prevTabs];
-      const newHistory = [
-        ...updatedTabs[tabIndex].history,
-        {
-          command: command.trim(),
-          time: formattedTime
-        }
-      ];
+      const commandEntry: TerminalCommand = {
+        command: command.trim(),
+        time: formattedTime,
+        status: 'running',
+        exitCode: null
+      };
+      
+      const newHistory = [...updatedTabs[tabIndex].history, commandEntry];
       
       // Ограничиваем размер истории максимум 100 командами
       if (newHistory.length > 100) {
@@ -907,21 +988,36 @@ export const Terminal = () => {
     if (tabIndex === -1) return;
     
     const tab = tabs[tabIndex];
-    if (tab.terminal) {
-      tab.terminal.clear();
-      
-      // Возвращаем фокус после очистки
-      setTimeout(() => {
-        tab.terminal?.focus();
-      }, 50);
-      
-      // Если есть активный процесс, отправляем команду очистки
-      if (tab.terminalId !== null) {
-        invoke("clear_terminal", { terminalId: tab.terminalId }).catch(err => {
-          console.error("Failed to clear terminal:", err);
-        });
-      }
-    }
+    if (!tab.terminal || tab.terminalId === null) return;
+    
+    // Эмулируем ввод команды "clear"
+    const clearCommand = "clear\r";
+    
+    // Отправляем команду в терминал
+    invoke("send_input", { terminalId: tab.terminalId, input: clearCommand })
+      .then(() => {
+        console.log("Clear command sent to terminal");
+        
+        // Добавляем команду в историю
+        addCommandToHistory(tab.id, "clear");
+        
+        // Фокусируем терминал после отправки команды
+        setTimeout(() => {
+          if (tab.terminal) {
+            tab.terminal.focus();
+          }
+        }, 50);
+      })
+      .catch(err => {
+        console.error("Failed to send clear command:", err);
+        setError(`Ошибка отправки команды очистки: ${err}`);
+        setTimeout(() => setError(null), 3000);
+        
+        // Если не удалось отправить команду, используем стандартный метод очистки
+        if (tab.terminal) {
+          tab.terminal.clear();
+        }
+      });
   };
 
   // Добавление новой вкладки
@@ -1308,6 +1404,17 @@ export const Terminal = () => {
                 <div key={index} className="history-item">
                   <div className="command-name">{cmd.command}</div>
                   <div className="command-time">{cmd.time}</div>
+                  <div className="command-status">
+                    {cmd.status === 'success' && (
+                      <span style={{ color: '#4caf50' }}>✓</span>
+                    )}
+                    {cmd.status === 'error' && (
+                      <span style={{ color: '#f44336' }}>✗</span>
+                    )}
+                    {cmd.status === 'running' && (
+                      <span style={{ color: '#2196f3' }}>⟳</span>
+                    )}
+                  </div>
                 </div>
               ))
             ) : (
