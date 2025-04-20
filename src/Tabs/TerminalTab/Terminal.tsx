@@ -267,10 +267,15 @@ export const Terminal = () => {
   
   // Добавление команды в историю
   const addCommandToHistory = (tabId: number, command: string) => {
-    // Если команда пустая или системная, игнорируем
-    if (!command || command.trim().length === 0 || 
-        command.includes('[') || 
-        command.includes('Терминал X-Avto')) {
+    // Если команда пустая или содержит только пробелы, игнорируем
+    if (!command || command.trim().length === 0) {
+      return;
+    }
+    
+    // Игнорируем системные сообщения
+    if (command.includes('[') || 
+        command.includes('Терминал X-Avto') || 
+        command.includes('PS C:')) {
       return;
     }
     
@@ -284,21 +289,39 @@ export const Terminal = () => {
         return prevTabs;
       }
       
-      // Добавляем команду в историю
+      // Создаем форматированную метку времени
       const now = new Date();
-      const formattedTime = `${now.getDate()} ${['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'][now.getMonth()]} ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      const formattedTime = now.toLocaleTimeString('ru-RU', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
       
+      // Добавляем команду в историю
       const updatedTabs = [...prevTabs];
+      const newHistory = [
+        ...updatedTabs[tabIndex].history,
+        {
+          command: command.trim(),
+          time: formattedTime
+        }
+      ];
+      
+      // Ограничиваем размер истории максимум 100 командами
+      if (newHistory.length > 100) {
+        newHistory.shift(); // Удаляем самую старую команду
+      }
+      
       updatedTabs[tabIndex] = {
         ...updatedTabs[tabIndex],
-        history: [...updatedTabs[tabIndex].history, {
-          command: command,
-          time: formattedTime
-        }]
+        history: newHistory
       };
       
       return updatedTabs;
     });
+    
+    // Также можно добавить логирование для отладки
+    console.log(`Added command to history for tab ${tabId}: ${command}`);
   };
 
   // Инициализация компонента
@@ -380,9 +403,15 @@ export const Terminal = () => {
       term._core._coreService.options.disableStdin = false;
     }
     
+    // Инициализируем буфер команды для этого таба, если он еще не создан
+    if (!commandBufferRef.current.has(tabId)) {
+      commandBufferRef.current.set(tabId, '');
+    }
+    
     // Создаем новый обработчик ввода с защитой от дублирования
     const lastInputRef = { data: '', timestamp: 0 };
     
+    // Обработчик данных для терминала
     terminal.onData(data => {
       if (!terminalId) return;
       
@@ -400,28 +429,28 @@ export const Terminal = () => {
       // Терминальный процесс сам отобразит ввод (эхо)
       invoke("send_input", { terminalId, input: data })
         .then(() => {
-          // Обрабатываем историю команд при успешной отправке
-          if (data !== '\r') {
-            // Если это символ Backspace (ASCII 127)
-            if (data === '\x7f') {
-              // Удаляем последний символ из буфера команды
-              const currentBuffer = commandBufferRef.current.get(tabId) || '';
-              if (currentBuffer.length > 0) {
-                commandBufferRef.current.set(tabId, currentBuffer.slice(0, -1));
-              }
-            } else {
-              // Добавляем символ в буфер команды
-              const currentBuffer = commandBufferRef.current.get(tabId) || '';
-              commandBufferRef.current.set(tabId, currentBuffer + data);
-            }
-          } else {
-            // Если нажали Enter, проверяем и сохраняем команду в историю
-            const command = commandBufferRef.current.get(tabId) || '';
-            if (command.trim().length > 0) {
-              addCommandToHistory(tabId, command);
-              // Очищаем буфер после добавления команды
+          // Обрабатываем буфер команды для истории
+          let currentBuffer = commandBufferRef.current.get(tabId) || '';
+          
+          if (data === '\r') { // Enter - завершение команды
+            // Если в буфере есть команда, добавляем её в историю
+            if (currentBuffer.trim().length > 0) {
+              addCommandToHistory(tabId, currentBuffer);
+              // Сбрасываем буфер команды
               commandBufferRef.current.set(tabId, '');
             }
+          } else if (data === '\x7f' || data === '\b') { // Backspace
+            // Удаляем последний символ из буфера
+            if (currentBuffer.length > 0) {
+              currentBuffer = currentBuffer.slice(0, -1);
+              commandBufferRef.current.set(tabId, currentBuffer);
+            }
+          } else if (data.length === 1 && data.charCodeAt(0) >= 32) { // Печатаемые символы
+            // Добавляем символ в буфер команды
+            currentBuffer += data;
+            commandBufferRef.current.set(tabId, currentBuffer);
+          } else if (data.startsWith('\x1b')) { // Escape sequences (стрелки, etc)
+            // Игнорируем управляющие последовательности
           }
         })
         .catch(err => {
@@ -1181,87 +1210,114 @@ export const Terminal = () => {
     }
   }, [activeTab, tabs, activeView]);
 
-  // Добавляем объявление currentTabIndex и currentTab только один раз перед рендерингом компонента
-  const currentTabIndex = tabs.findIndex(tab => tab.id === activeTab);
-  const currentTab = currentTabIndex !== -1 ? tabs[currentTabIndex] : null;
+  // Получаем текущий активный таб
+  const currentTab = tabs.find(tab => tab.id === activeTab);
+  
+  // История команд для текущей вкладки
+  const currentHistory = useMemo(() => {
+    if (!currentTab) return [];
+    return currentTab.history || [];
+  }, [currentTab]);
 
   return (
     <div className="terminal-container">
+      {/* Ошибка терминала */}
       {error && (
         <div className="terminal-error">
           <div className="error-message">{error}</div>
           <button className="error-close-btn" onClick={() => setError(null)}>×</button>
         </div>
       )}
-      <div className="terminal-main">
-        <div className="terminal-tabs">
-          {tabs.map(tab => (
-            <div 
-              key={tab.id} 
-              className={`terminal-tab ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => handleTabActivation(tab.id)}
-            >
-              <span>{tab.name}</span>
+      
+      {/* Разделение на две панели: терминал слева, история справа */}
+      <div className="terminal-layout">
+        {/* Левая панель с терминалом */}
+        <div className="terminal-main">
+          {/* Вкладки терминала */}
+          <div className="terminal-tabs">
+            <div className="tabs-container">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  className={`terminal-tab ${tab.id === activeTab ? 'active' : ''}`}
+                  onClick={() => handleTabActivation(tab.id)}
+                >
+                  {tab.name}
+                  {tabs.length > 1 && (
+                    <button 
+                      className="tab-close-btn" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCloseTab(tab.id, e);
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </button>
+              ))}
+              <button className="tab-add-btn" onClick={handleAddTab}>+</button>
+            </div>
+            
+            <div className="terminal-toolbar">
               <button 
-                className="tab-close-btn"
-                onClick={(e) => handleCloseTab(tab.id, e)}
+                className="tab-clear-btn" 
+                onClick={handleClearTerminal}
+                title="Очистить терминал"
               >
-                ×
+                <AiOutlineClear size={16} />
               </button>
             </div>
-          ))}
-          <button className="tab-add-btn" onClick={handleAddTab}>+</button>
-          
-          <div className="terminal-toolbar">
-            <button 
-              className="tab-clear-btn" 
-              title="Очистить терминал"
-              onClick={handleClearTerminal}
-            >
-              🗑️
-            </button>
           </div>
+          
+          {/* Вывод терминала */}
+          <div 
+            className="terminal-output" 
+            onClick={() => {
+              const currentTab = tabs.find(tab => tab.id === activeTab);
+              if (currentTab?.terminal) {
+                setTimeout(() => currentTab.terminal?.focus(), 10);
+              }
+            }}
+          >
+            <div 
+              ref={terminalRef} 
+              className="terminal-instance" 
+              tabIndex={-1} 
+            />
+            {!tabs.some(tab => tab.id === activeTab && tab.terminal) && (
+              <div className="terminal-placeholder">
+                ТЕРМИНАЛ
+              </div>
+            )}
+          </div>
+          
+          {currentTab?.terminalId !== null && (
+            <div className="status-indicator running" title="Процесс запущен" />
+          )}
         </div>
         
-        <div 
-          className="terminal-output" 
-          onClick={() => {
-            if (currentTab?.terminal) {
-              setTimeout(() => currentTab.terminal?.focus(), 10);
-            }
-          }}
-        >
-          <div 
-            ref={terminalRef} 
-            className="terminal-instance" 
-            tabIndex={-1} 
-          />
-          {!currentTab || !currentTab.terminal ? (
-            <div className="terminal-placeholder">
-              ТЕРМИНАЛ
-            </div>
-          ) : null}
+        {/* Правая панель с историей команд */}
+        <div className="history-panel">
+          <div className="history-header">
+            История команд
+          </div>
+          <div className="terminal-history">
+            {currentHistory.length > 0 ? (
+              currentHistory.map((cmd, index) => (
+                <div key={index} className="history-item">
+                  <div className="command-name">{cmd.command}</div>
+                  <div className="command-time">{cmd.time}</div>
+                </div>
+              ))
+            ) : (
+              <div className="empty-history">
+                История команд пуста
+              </div>
+            )}
+          </div>
         </div>
       </div>
-      
-      <div className="terminal-history">
-        {currentTab && currentTab.history.length > 0 ? currentTab.history.map((cmd, index) => (
-          <div key={index} className="history-item">
-            <div className="command-name">{cmd.command}</div>
-            {cmd.status && <div className="command-status">{cmd.status}</div>}
-            <div className="command-time">{cmd.time}</div>
-          </div>
-        )) : (
-          <div className="history-item">
-            <div className="command-name">История команд</div>
-            <div className="command-time">...</div>
-          </div>
-        )}
-      </div>
-      
-      {currentTab && currentTab.terminalId !== null && (
-        <div className="status-indicator running" title="Процесс запущен" />
-      )}
     </div>
   );
 };
