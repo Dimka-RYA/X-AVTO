@@ -1,0 +1,383 @@
+/* Основные стили контейнера терминала */
+.terminal-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+}
+
+/* Вертикальный ресайзер */
+.vertical-resizer {
+  width: 100%;
+  height: 6px;
+  background-color: #252526;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vertical-resizer:hover {
+  background-color: #333;
+}
+
+/* Кнопки вкладок */
+.tab-buttons {
+  display: flex;
+  justify-content: space-between;
+  background-color: #252526;
+  border-bottom: 1px solid #333;
+  padding: 4px 8px;
+  align-items: center;
+}
+
+.left-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.tab-button {
+  padding: 4px 12px;
+  background-color: #2d2d2d;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 3px;
+}
+
+.tab-button.active {
+  background-color: #1e1e1e;
+  color: #fff;
+}
+
+.right-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.action-button {
+  background: none;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-button:hover {
+  background-color: #333;
+  color: #fff;
+}
+
+/* Содержимое вкладок */
+.tab-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Терминал */
+.terminal {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+/* Вкладка проблем */
+.issues-tab {
+  height: 100%;
+  overflow: hidden;
+}
+
+.issues-filters {
+  padding: 8px;
+  background-color: #252526;
+  border-bottom: 1px solid #333;
+}
+
+.terminal-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.issue-search {
+  padding: 6px 10px;
+  background-color: #3c3c3c;
+  border: 1px solid #555;
+  color: #fff;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 100%;
+}
+
+.filter-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background-color: #2d2d2d;
+  border: 1px solid #555;
+  color: #ccc;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.filter-btn.active {
+  background-color: #3c3c3c;
+  border-color: #666;
+}
+
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-icon {
+  position: absolute;
+  left: 8px;
+  color: #999;
+}
+
+.issues-search-input {
+  padding: 4px 10px 4px 30px;
+  background-color: #3c3c3c;
+  border: 1px solid #555;
+  color: #fff;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 150px;
+}
+
+/* Содержимое проблем */
+.issues-content {
+  flex: 1;
+  overflow-y: auto;
+  height: calc(100% - 40px);
+}
+
+.issues-list {
+  padding: 0;
+}
+
+.file-issues {
+  margin-bottom: 2px;
+}
+
+.file-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  background-color: #2d2d2d;
+  cursor: pointer;
+}
+
+.file-header:hover {
+  background-color: #333;
+}
+
+.file-icon {
+  margin-right: 6px;
+  display: flex;
+  align-items: center;
+}
+
+.file-name {
+  flex: 1;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+}
+
+.python-badge {
+  font-size: 10px;
+  padding: 1px 4px;
+  background-color: #3572A5;
+  color: white;
+  border-radius: 3px;
+  margin-left: 8px;
+}
+
+.issue-counts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.error-count, .warning-count {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.error-count {
+  color: #ff5555;
+}
+
+.warning-count {
+  color: #ffaa33;
+}
+
+.issue-details {
+  background-color: #1e1e1e;
+  padding: 4px 10px 4px 30px;
+}
+
+.issue-item {
+  padding: 6px 10px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+}
+
+.issue-item:hover {
+  background-color: #2d2d2d;
+}
+
+.issue-item:last-child {
+  border-bottom: none;
+}
+
+.severity-icon {
+  margin-right: 6px;
+}
+
+.severity-icon.error {
+  color: #ff5555;
+}
+
+.severity-icon.warning {
+  color: #ffaa33;
+}
+
+.severity-icon.info {
+  color: #33aaff;
+}
+
+.issue-message {
+  flex: 1;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.issue-position {
+  font-size: 11px;
+  color: #999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.issue-source {
+  font-style: italic;
+  color: #888;
+}
+
+.no-issues {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.no-issues-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: #999;
+}
+
+.icon-container {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: rgba(76, 175, 80, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Индикатор статуса */
+.status-indicator {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  z-index: 100;
+}
+
+.status-indicator.running {
+  background-color: #42b983;
+  box-shadow: 0 0 5px rgba(66, 185, 131, 0.7);
+}
+
+.status-indicator.stopped {
+  background-color: #ff5555;
+  box-shadow: 0 0 5px rgba(255, 85, 85, 0.7);
+}
+
+/* Стили для xterm */
+.xterm {
+  padding: 6px;
+  font-variant-ligatures: none;
+  font-feature-settings: normal;
+  font-smoothing: antialiased;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: 0.6px !important;
+  word-spacing: 0 !important;
+}
+
+.xterm .xterm-rows {
+  letter-spacing: 0.6px !important;
+  font-feature-settings: "liga" 0;
+  font-variant-ligatures: none;
+}
+
+.xterm-viewport {
+  overflow-y: auto !important;
+}
+
+.xterm-cursor {
+  background-color: #45fce4 !important;
+  border-color: #45fce4 !important;
+}
+
+/* Скроллбары */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #252526;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #555;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #777;
+} 

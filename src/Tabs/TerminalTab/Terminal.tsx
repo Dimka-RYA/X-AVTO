@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
@@ -8,12 +8,36 @@ import { listen } from '@tauri-apps/api/event';
 import './Terminal.css';
 import 'xterm/css/xterm.css';
 
+// Иконки для нового интерфейса
+import { X, RefreshCw, Search, ChevronRight, ChevronDown, AlertCircle, AlertTriangle, Info, Check, GripHorizontal } from 'lucide-react';
+import { AiOutlineClear } from 'react-icons/ai';
+
+// Интерфейсы проблем
+interface Issue {
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  line: number;
+  column: number;
+  endLine: number;
+  endColumn: number;
+  source?: string;
+  code?: string;
+}
+
+interface IssueInfo {
+  filePath: string;
+  fileName: string;
+  issues: Issue[];
+}
+
+// Интерфейс для команд терминала
 interface TerminalCommand {
   command: string;
   time: string;
   status?: string;
 }
 
+// Интерфейс для данных вкладки терминала
 interface TerminalTabData {
   id: number;
   name: string;
@@ -25,7 +49,9 @@ interface TerminalTabData {
 }
 
 export const Terminal = () => {
+  // Базовое состояние
   const [activeTab, setActiveTab] = useState<number>(1);
+  const [activeView, setActiveView] = useState<"terminal" | "issues">("terminal");
   const [tabs, setTabs] = useState<Array<TerminalTabData>>([
     { 
       id: 1, 
@@ -38,13 +64,109 @@ export const Terminal = () => {
     }
   ]);
   const [error, setError] = useState<string | null>(null);
+  const [terminalHeight, setTerminalHeight] = useState<number>(300);
+  const [issues, setIssues] = useState<IssueInfo[]>([]);
+  const [issueSearch, setIssueSearch] = useState("");
+  const [showIssueFilters, setShowIssueFilters] = useState(false);
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [filters, setFilters] = useState({
+    errors: true,
+    warnings: true,
+    info: true
+  });
   
+  // Refs
   const terminalRef = useRef<HTMLDivElement>(null);
   const unlistenerRef = useRef<(() => void) | null>(null);
   const isInitializingRef = useRef<Set<number>>(new Set());
   const isProcessStartingRef = useRef<Set<number>>(new Set());
   const commandBufferRef = useRef<Map<number, string>>(new Map());
-  
+  const outputTrackerRef = useRef<Map<number, { lastOutput: string, lastTime: number }>>(new Map());
+
+  // Функции для работы с файлами проблем
+  const toggleFileExpand = (filePath: string) => {
+    setExpandedFiles(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(filePath)) {
+        newSet.delete(filePath);
+      } else {
+        newSet.add(filePath);
+      }
+      return newSet;
+    });
+  };
+
+  // Получение отфильтрованных проблем
+  const getFilteredIssues = () => {
+    if (!issues || issues.length === 0) {
+      return [];
+    }
+
+    return issues
+      .map((fileIssue) => ({
+        ...fileIssue,
+        issues: fileIssue.issues.filter((issue) => {
+          const matchesSearch = issueSearch === "" ||
+            (issue.message && issue.message.toLowerCase().includes(issueSearch.toLowerCase())) ||
+            (fileIssue.fileName && fileIssue.fileName.toLowerCase().includes(issueSearch.toLowerCase()));
+          
+          const matchesFilter = (
+            (issue.severity === 'error' && filters.errors) ||
+            (issue.severity === 'warning' && filters.warnings) ||
+            (issue.severity === 'info' && filters.info)
+          );
+          
+          return matchesSearch && matchesFilter;
+        })
+      }))
+      .filter((fileIssue) => fileIssue.issues && fileIssue.issues.length > 0);
+  };
+
+  // Обработка вертикального изменения размера терминала
+  const handleVerticalDrag = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const currentHeight = terminalHeight || 300;
+    
+    const MIN_TERMINAL_HEIGHT = 100;
+    const MAX_TERMINAL_HEIGHT = window.innerHeight * 0.8; // 80% of window height
+    const COLLAPSE_THRESHOLD = 30;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      // Для терминала внизу, перетаскивание вверх (отрицательная дельта) увеличивает высоту
+      const delta = moveEvent.clientY - startY;
+      let newHeight = currentHeight - delta; // Инвертируем дельту для интуитивного поведения
+      
+      // Убедимся, что высота терминала остается в пределах
+      newHeight = Math.max(Math.min(newHeight, MAX_TERMINAL_HEIGHT), MIN_TERMINAL_HEIGHT);
+      
+      // Если перетащен, чтобы быть очень маленьким, сворачиваем его
+      if (newHeight <= MIN_TERMINAL_HEIGHT + COLLAPSE_THRESHOLD && delta > 0) {
+        // Здесь можно добавить логику для сворачивания терминала
+        return;
+      }
+      
+      // Устанавливаем новую высоту
+      setTerminalHeight(newHeight);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      
+      // Подгоняем терминал под новый размер
+      setTimeout(() => {
+        const tabIndex = tabs.findIndex(tab => tab.id === activeTab);
+        if (tabIndex !== -1) {
+          handleResize(tabIndex);
+        }
+      }, 100);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
   // Настраиваем глобальный слушатель вывода терминала
   const setupGlobalListener = async () => {
     // Если уже есть слушатель, отписываемся
@@ -54,9 +176,6 @@ export const Terminal = () => {
     }
     
     try {
-      // Хранилище для последних полученных выводов для каждого терминала
-      const outputCache = new Map<number, string>();
-      
       // Создаем новый слушатель
       const unlisten = await listen<[number, string]>("pty-output", (event) => {
         if (!event.payload || !Array.isArray(event.payload) || event.payload.length !== 2) {
@@ -66,17 +185,18 @@ export const Terminal = () => {
         
         const [terminalId, output] = event.payload;
         
-        console.log(`Output for terminal ID ${terminalId}: ${output.length} bytes`);
+        // Проверяем, не дублируется ли вывод (может произойти из-за эхо или переотправки)
+        const termData = outputTrackerRef.current.get(terminalId) || { lastOutput: '', lastTime: 0 };
+        const now = Date.now();
         
-        // Проверяем, не дублируется ли вывод с предыдущим полученным
-        const lastOutput = outputCache.get(terminalId);
-        if (lastOutput === output) {
-          console.log(`Skipping duplicate output for terminal ${terminalId}`);
+        // Если вывод идентичен последнему и прошло менее 100 мс, игнорируем его
+        if (termData.lastOutput === output && now - termData.lastTime < 100) {
+          console.warn(`Ignoring duplicate output for terminal ${terminalId}`);
           return;
         }
         
-        // Сохраняем текущий вывод в кэше
-        outputCache.set(terminalId, output);
+        // Обновляем отслеживаемый вывод
+        outputTrackerRef.current.set(terminalId, { lastOutput: output, lastTime: now });
         
         // Используем актуальное состояние из setTabs
         setTabs(prevTabs => {
@@ -93,9 +213,6 @@ export const Terminal = () => {
                 terminalIdMap.set(tab.id, tab.terminalId);
               }
             }
-            
-            console.log("Current terminal mapping:", Object.fromEntries(terminalIdMap));
-            console.log("Active tab:", activeTab);
             
             // Если вкладка не найдена, но есть активная вкладка с терминалом, используем её
             const activeTabItem = prevTabs.find(tab => tab.id === activeTab);
@@ -121,7 +238,6 @@ export const Terminal = () => {
           
           // Если терминал существует, отправляем вывод
           if (tab.terminal) {
-            console.log(`Sending output to tab ${tab.id} (Terminal ID: ${tab.terminalId})`);
             tab.terminal.write(output);
             
             // Если это активная вкладка, устанавливаем фокус
@@ -151,17 +267,10 @@ export const Terminal = () => {
   
   // Добавление команды в историю
   const addCommandToHistory = (tabId: number, command: string) => {
-    // Если команда пустая, игнорируем
-    if (!command || command.trim().length === 0) {
-      return;
-    }
-    
-    // Очищаем команду от возможных управляющих символов и промптов
-    const cleanCommand = command
-      .replace(/PS C:\\.*?>/g, '') // Удаляем промпты PowerShell
-      .replace(/^\s+|\s+$/g, '');  // Удаляем пробелы в начале и конце
-    
-    if (cleanCommand.length === 0) {
+    // Если команда пустая или системная, игнорируем
+    if (!command || command.trim().length === 0 || 
+        command.includes('[') || 
+        command.includes('Терминал X-Avto')) {
       return;
     }
     
@@ -170,10 +279,8 @@ export const Terminal = () => {
       if (tabIndex === -1) return prevTabs;
       
       // Проверяем, не повторяется ли команда
-      const lastCommand = prevTabs[tabIndex].history.length > 0 ? 
-        prevTabs[tabIndex].history[prevTabs[tabIndex].history.length - 1] : null;
-        
-      if (lastCommand && lastCommand.command === cleanCommand) {
+      const lastCommand = prevTabs[tabIndex].history[prevTabs[tabIndex].history.length - 1];
+      if (lastCommand && lastCommand.command === command) {
         return prevTabs;
       }
       
@@ -185,7 +292,7 @@ export const Terminal = () => {
       updatedTabs[tabIndex] = {
         ...updatedTabs[tabIndex],
         history: [...updatedTabs[tabIndex].history, {
-          command: cleanCommand,
+          command: command,
           time: formattedTime
         }]
       };
@@ -198,14 +305,16 @@ export const Terminal = () => {
   useEffect(() => {
     console.log("Starting terminal component initialization");
 
-    // Запускаем первый терминал автоматически
-    const tabIndex = tabs.findIndex(tab => tab.id === activeTab);
-    if (tabIndex !== -1 && !tabs[tabIndex].terminal) {
-      initializeTerminal(activeTab);
-    }
-
-    // Настраиваем слушатель после инициализации компонента
+    // Настраиваем глобальный слушатель вывода сразу при монтировании компонента
     setupGlobalListener();
+
+    // Запускаем первый терминал автоматически только если активный вид - терминал
+    if (activeView === "terminal") {
+      const tabIndex = tabs.findIndex(tab => tab.id === activeTab);
+      if (tabIndex !== -1 && !tabs[tabIndex].terminal) {
+        initializeTerminal(activeTab);
+      }
+    }
     
     // Эффект для очистки при размонтировании
     return () => {
@@ -230,18 +339,117 @@ export const Terminal = () => {
         }
       });
     };
-  }, []);
+  }, [activeView]);
 
   // Настраиваем слушатель при любом изменении в состоянии tabs
   useEffect(() => {
-    // Обновляем слушатель при изменении tabs, чтобы он имел доступ к актуальному состоянию
-    // Делаем это только если уже установлен связь с внешним процессом
-    const hasActiveTerminals = tabs.some(tab => tab.terminalId !== null);
-    if (hasActiveTerminals) {
-      console.log("Updating terminal output listener due to tab state changes");
-      setupGlobalListener();
+    // Управляем слушателем потока вывода только при монтировании и размонтировании компонента
+    // Убираем переподписку при каждом изменении tabs, это одна из причин дублирования
+  }, []);  // Пустой массив зависимостей
+
+  // Настраиваем обработчик ввода для терминала
+  const setupTerminalDataHandler = (terminal: XTerm, terminalId: number | null, tabId: number) => {
+    if (!terminalId) return;
+    
+    // Очищаем предыдущие обработчики, если они есть
+    // Используем any для доступа к внутренним свойствам xterm
+    const term = terminal as any;
+    
+    if (term._core && term._core._addonManager && term._core._addonManager._addons) {
+      // Удаляем все существующие обработчики данных
+      const existingListeners = term._core._addonManager._addons
+        .filter((addon: any) => addon.constructor && addon.constructor.name === 'CustomDataEventListener');
+      
+      if (existingListeners.length > 0) {
+        console.log(`Removing ${existingListeners.length} existing data handlers for tab ${tabId}`);
+        existingListeners.forEach((listener: any) => {
+          term._core._addonManager._addons = 
+            term._core._addonManager._addons.filter((addon: any) => addon !== listener);
+        });
+      }
     }
-  }, [tabs]);
+    
+    // Также очищаем обработчики типа onData, которые могут вызывать дублирование ввода
+    if (term._core && term._core._inputHandler && typeof term._core._inputHandler.removeDataListeners === 'function') {
+      term._core._inputHandler.removeDataListeners();
+    }
+    
+    // Отключаем эхо ввода
+    // В PowerShell уже есть эхо ввода, поэтому отключаем локальное эхо в терминале
+    if (term._core && term._core._coreService) {
+      term._core._coreService.options.disableStdin = false;
+    }
+    
+    // Создаем новый обработчик ввода с защитой от дублирования
+    const lastInputRef = { data: '', timestamp: 0 };
+    
+    terminal.onData(data => {
+      if (!terminalId) return;
+      
+      // Защита от дублирования ввода
+      const now = Date.now();
+      if (lastInputRef.data === data && now - lastInputRef.timestamp < 50) {
+        console.warn(`Ignoring duplicate input within 50ms: "${data}"`);
+        return;
+      }
+      
+      lastInputRef.data = data;
+      lastInputRef.timestamp = now;
+      
+      // Отправляем ввод в процесс без отображения в терминале
+      // Терминальный процесс сам отобразит ввод (эхо)
+      invoke("send_input", { terminalId, input: data })
+        .then(() => {
+          // Обрабатываем историю команд при успешной отправке
+          if (data !== '\r') {
+            // Если это символ Backspace (ASCII 127)
+            if (data === '\x7f') {
+              // Удаляем последний символ из буфера команды
+              const currentBuffer = commandBufferRef.current.get(tabId) || '';
+              if (currentBuffer.length > 0) {
+                commandBufferRef.current.set(tabId, currentBuffer.slice(0, -1));
+              }
+            } else {
+              // Добавляем символ в буфер команды
+              const currentBuffer = commandBufferRef.current.get(tabId) || '';
+              commandBufferRef.current.set(tabId, currentBuffer + data);
+            }
+          } else {
+            // Если нажали Enter, проверяем и сохраняем команду в историю
+            const command = commandBufferRef.current.get(tabId) || '';
+            if (command.trim().length > 0) {
+              addCommandToHistory(tabId, command);
+              // Очищаем буфер после добавления команды
+              commandBufferRef.current.set(tabId, '');
+            }
+          }
+        })
+        .catch(err => {
+          console.error(`Failed to send input to terminal ${terminalId}:`, err);
+          terminal.write(`\r\n\x1b[31mОшибка отправки ввода: ${err}\x1b[0m\r\n`);
+          setError(`Ошибка отправки ввода: ${err}`);
+          setTimeout(() => setError(null), 3000);
+        });
+    });
+    
+    // Отмечаем, что обработчик данных прикреплен
+    setTabs(prevTabs => {
+      const updatedTabs = [...prevTabs];
+      const updatedTabIndex = updatedTabs.findIndex(tab => tab.id === tabId);
+      
+      if (updatedTabIndex === -1) {
+        console.warn(`Tab ${tabId} no longer exists after attaching data handler`);
+        return prevTabs;
+      }
+      
+      updatedTabs[updatedTabIndex] = {
+        ...updatedTabs[updatedTabIndex],
+        dataHandlerAttached: true
+      };
+      
+      return updatedTabs;
+    });
+  };
 
   // Инициализация терминала для новой вкладки
   const initializeTerminal = async (tabId: number) => {
@@ -290,6 +498,10 @@ export const Terminal = () => {
           setTimeout(() => {
             startTerminalProcess(tabIndex);
           }, 100);
+        } else if (!tabs[tabIndex].dataHandlerAttached && tabs[tabIndex].terminal && tabs[tabIndex].terminalId) {
+          // Если обработчик данных еще не прикреплен, прикрепляем его
+          console.log(`Setting up data handler for existing terminal of tab ${tabId}`);
+          setupTerminalDataHandler(tabs[tabIndex].terminal, tabs[tabIndex].terminalId, tabId);
         }
         
         isInitializingRef.current.delete(tabId);
@@ -317,7 +529,10 @@ export const Terminal = () => {
         allowTransparency: true,
         windowsMode: true,
         allowProposedApi: true,
-        disableStdin: false
+        disableStdin: false,
+        macOptionIsMeta: true,
+        screenReaderMode: false
+        // Отключаем локальное эхо через другой механизм в setupTerminalDataHandler
       });
       
       const fit = new FitAddon();
@@ -359,7 +574,7 @@ export const Terminal = () => {
           ...updatedTabs[updatedTabIndex],
           terminal: term,
           fitAddon: fit,
-          dataHandlerAttached: false
+          dataHandlerAttached: false // Важно установить false, т.к. обработчик будет добавлен позже
         };
         
         return updatedTabs;
@@ -420,60 +635,9 @@ export const Terminal = () => {
         const { rows, cols } = term;
         await invoke("resize_pty", { terminalId, rows, cols });
         
-        // Настраиваем обработчик ввода
-        term.onData(data => {
-          // Если терминал не инициализирован, игнорируем ввод
-          if (!terminalId) return;
-          
-          // Отправляем ввод в процесс
-          invoke("send_input", { terminalId, input: data })
-            .then(() => {
-              // Обрабатываем историю команд при успешной отправке
-              if (data === '\r') {
-                // Если нажали Enter, проверяем и сохраняем команду в историю
-                const command = commandBufferRef.current.get(tabId) || '';
-                if (command.trim().length > 0) {
-                  // Игнорируем системные команды и сообщения
-                  const isSystemCommand = 
-                    command.includes('[') || 
-                    command.includes('Терминал X-Avto') || 
-                    command.includes('PS C:') ||
-                    command.includes('CommandNotFound');
-                  
-                  if (!isSystemCommand) {
-                    console.log(`Adding command to history for tab ${tabId}: "${command}"`);
-                    addCommandToHistory(tabId, command);
-                  } else {
-                    console.log(`Skipping system command for history: "${command}"`);
-                  }
-                  
-                  // Очищаем буфер после добавления команды
-                  commandBufferRef.current.set(tabId, '');
-                }
-              } else if (data === '\x7f') { // Backspace (ASCII 127)
-                // Удаляем последний символ из буфера команды
-                const currentBuffer = commandBufferRef.current.get(tabId) || '';
-                if (currentBuffer.length > 0) {
-                  commandBufferRef.current.set(tabId, currentBuffer.slice(0, -1));
-                }
-              } else {
-                // Игнорируем управляющие символы для буфера команд
-                const isControlChar = (data.charCodeAt(0) < 32 && data !== '\t') || data.startsWith('\x1b');
-                if (!isControlChar) {
-                  // Добавляем символ в буфер команды
-                  const currentBuffer = commandBufferRef.current.get(tabId) || '';
-                  commandBufferRef.current.set(tabId, currentBuffer + data);
-                  console.log(`Command buffer for tab ${tabId}: "${commandBufferRef.current.get(tabId)}"`);
-                }
-              }
-            })
-            .catch(err => {
-              console.error(`Failed to send input to terminal ${terminalId}:`, err);
-              term.write(`\r\n\x1b[31mОшибка отправки ввода: ${err}\x1b[0m\r\n`);
-              setError(`Ошибка отправки ввода: ${err}`);
-              setTimeout(() => setError(null), 3000);
-            });
-        });
+        // Настраиваем обработчик ввода - установка только один раз
+        console.log(`Setting up initial data handler for tab ${tabId}`);
+        setupTerminalDataHandler(term, terminalId, tabId);
         
         // Обновляем состояние с ID процесса
         setTabs(prevTabs => {
@@ -487,8 +651,7 @@ export const Terminal = () => {
           
           updatedTabs[updatedTabIndex] = {
             ...updatedTabs[updatedTabIndex],
-            terminalId,
-            dataHandlerAttached: true
+            terminalId
           };
           
           return updatedTabs;
@@ -532,7 +695,7 @@ export const Terminal = () => {
     }
   };
 
-  // Запуск процесса в терминале (используется только для запуска процесса в уже созданном терминале)
+  // Запуск процесса в терминале
   const startTerminalProcess = async (tabIndex: number) => {
     const tab = tabs[tabIndex];
     if (!tab) {
@@ -616,57 +779,14 @@ export const Terminal = () => {
       // Устанавливаем размер терминала
       await invoke("resize_pty", { terminalId, rows, cols });
       
-      // Настраиваем обработчик ввода
-      tab.terminal.onData(data => {
-        // Отправляем ввод в процесс
-        invoke("send_input", { terminalId, input: data })
-          .then(() => {
-            // Обрабатываем историю команд при успешной отправке
-            if (data === '\r') {
-              // Если нажали Enter, проверяем и сохраняем команду в историю
-              const command = commandBufferRef.current.get(tab.id) || '';
-              if (command.trim().length > 0) {
-                // Игнорируем системные команды и сообщения
-                const isSystemCommand = 
-                  command.includes('[') || 
-                  command.includes('Терминал X-Avto') || 
-                  command.includes('PS C:') ||
-                  command.includes('CommandNotFound');
-                
-                if (!isSystemCommand) {
-                  console.log(`Adding command to history for tab ${tab.id}: "${command}"`);
-                  addCommandToHistory(tab.id, command);
-                } else {
-                  console.log(`Skipping system command for history: "${command}"`);
-                }
-                
-                // Очищаем буфер после добавления команды
-                commandBufferRef.current.set(tab.id, '');
-              }
-            } else if (data === '\x7f') { // Backspace (ASCII 127)
-              // Удаляем последний символ из буфера команды
-              const currentBuffer = commandBufferRef.current.get(tab.id) || '';
-              if (currentBuffer.length > 0) {
-                commandBufferRef.current.set(tab.id, currentBuffer.slice(0, -1));
-              }
-            } else {
-              // Игнорируем управляющие символы для буфера команд
-              const isControlChar = (data.charCodeAt(0) < 32 && data !== '\t') || data.startsWith('\x1b');
-              if (!isControlChar) {
-                // Добавляем символ в буфер команды
-                const currentBuffer = commandBufferRef.current.get(tab.id) || '';
-                commandBufferRef.current.set(tab.id, currentBuffer + data);
-                console.log(`Command buffer for tab ${tab.id}: "${commandBufferRef.current.get(tab.id)}"`);
-              }
-            }
-          })
-          .catch(err => {
-            console.error(`Failed to send input to terminal ${terminalId}:`, err);
-            tab.terminal?.write(`\r\n\x1b[31mОшибка отправки ввода: ${err}\x1b[0m\r\n`);
-            setError(`Ошибка отправки ввода: ${err}`);
-            setTimeout(() => setError(null), 3000);
-          });
-      });
+      // Настраиваем обработчик ввода с нашей функцией, если он еще не был настроен
+      // Проверяем, прикреплен ли уже обработчик данных
+      if (!tab.dataHandlerAttached) {
+        console.log(`Setting up data handler for restarted tab ${tab.id}`);
+        setupTerminalDataHandler(tab.terminal, terminalId, tab.id);
+      } else {
+        console.log(`Data handler already attached for tab ${tab.id}, skipping setup`);
+      }
       
       // Обновляем состояние с ID процесса
       setTabs(prevTabs => {
@@ -680,8 +800,7 @@ export const Terminal = () => {
         
         updatedTabs[updatedTabIndex] = {
           ...updatedTabs[updatedTabIndex],
-          terminalId,
-          dataHandlerAttached: true
+          terminalId
         };
         
         return updatedTabs;
@@ -720,57 +839,38 @@ export const Terminal = () => {
     }
   };
 
-  // Обработка изменения активной вкладки
-  useEffect(() => {
-    console.log(`Active tab changed to ${activeTab}`);
-    
-    // Инициализируем терминал, если он еще не инициализирован
+  // Перезапуск процесса терминала
+  const restartTerminalProcess = async () => {
     const tabIndex = tabs.findIndex(tab => tab.id === activeTab);
     if (tabIndex === -1) return;
     
-    // Если терминал еще не инициализирован, инициализируем его
-    if (!tabs[tabIndex].terminal) {
-      initializeTerminal(activeTab);
-    } else {
-      // Если терминал уже инициализирован, просто отображаем его
-      if (terminalRef.current) {
-        terminalRef.current.innerHTML = '';
-        tabs[tabIndex].terminal?.open(terminalRef.current);
-        
-        // Подгоняем размер и фокусируемся
-        setTimeout(() => {
-          if (tabs[tabIndex].fitAddon) {
-            tabs[tabIndex].fitAddon.fit();
-            
-            // Если есть активный процесс, обновляем размер
-            if (tabs[tabIndex].terminalId !== null) {
-              const { rows, cols } = tabs[tabIndex].terminal!;
-              invoke("resize_pty", { 
-                terminalId: tabs[tabIndex].terminalId,
-                rows,
-                cols
-              }).catch(err => {
-                console.error("Failed to resize terminal:", err);
-              });
-            }
-            
-            // Устанавливаем фокус на терминал для ввода
-            setTimeout(() => {
-              tabs[tabIndex].terminal?.focus();
-            }, 50);
-          }
-        }, 50);
-        
-        // Добавляем автофокус при клике по области терминала
-        if (terminalRef.current) {
-          const terminal = tabs[tabIndex].terminal;
-          terminalRef.current.addEventListener('click', () => {
-            terminal?.focus();
-          });
-        }
-      }
+    const tab = tabs[tabIndex];
+    if (!tab.terminalId) return;
+    
+    try {
+      // Сначала закрываем текущий процесс
+      await invoke("close_terminal_process", { terminalId: tab.terminalId });
+      
+      // Обновляем состояние вкладки
+      setTabs(prevTabs => {
+        const updatedTabs = [...prevTabs];
+        updatedTabs[tabIndex] = {
+          ...updatedTabs[tabIndex],
+          terminalId: null
+        };
+        return updatedTabs;
+      });
+      
+      // Добавляем небольшую задержку перед запуском нового процесса
+      setTimeout(() => {
+        startTerminalProcess(tabIndex);
+      }, 500);
+    } catch (error) {
+      console.error(`Failed to restart terminal process:`, error);
+      setError(`Ошибка перезапуска процесса: ${error}`);
+      setTimeout(() => setError(null), 3000);
     }
-  }, [activeTab, tabs]);
+  };
 
   // Очистка терминала
   const handleClearTerminal = () => {
@@ -864,35 +964,224 @@ export const Terminal = () => {
 
   // Обработка изменения размера окна
   useEffect(() => {
-    const handleResize = () => {
-      const tabIndex = tabs.findIndex(tab => tab.id === activeTab);
-      if (tabIndex !== -1 && tabs[tabIndex].fitAddon && tabs[tabIndex].terminal) {
-        tabs[tabIndex].fitAddon.fit();
-        
-        // Если есть активный процесс, обновляем размер
-        if (tabs[tabIndex].terminalId !== null) {
-          const { rows, cols } = tabs[tabIndex].terminal;
-          invoke("resize_pty", { 
-            terminalId: tabs[tabIndex].terminalId,
-            rows,
-            cols
-          }).catch(err => {
-            console.error("Failed to resize terminal:", err);
-          });
+    const resizeHandler = () => {
+      if (activeView === "terminal") {
+        const tabIndex = tabs.findIndex(tab => tab.id === activeTab);
+        if (tabIndex !== -1 && tabs[tabIndex].fitAddon && tabs[tabIndex].terminal) {
+          tabs[tabIndex].fitAddon.fit();
+          
+          // Если есть активный процесс, обновляем размер
+          if (tabs[tabIndex].terminalId !== null) {
+            const { rows, cols } = tabs[tabIndex].terminal;
+            invoke("resize_pty", { 
+              terminalId: tabs[tabIndex].terminalId,
+              rows,
+              cols
+            }).catch(err => {
+              console.error("Failed to resize terminal:", err);
+            });
+          }
+          
+          // Возвращаем фокус на терминал после изменения размера
+          setTimeout(() => {
+            tabs[tabIndex].terminal?.focus();
+          }, 50);
         }
-        
-        // Возвращаем фокус на терминал после изменения размера
-        setTimeout(() => {
-          tabs[tabIndex].terminal?.focus();
-        }, 50);
       }
     };
     
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [activeTab, tabs]);
+    window.addEventListener('resize', resizeHandler);
+    return () => window.removeEventListener('resize', resizeHandler);
+  }, [activeTab, tabs, activeView]);
 
-  // Получаем текущую вкладку
+  // Эффект для управления вкладкой проблем
+  useEffect(() => {
+    if (activeView === "issues") {
+      // Здесь можно добавить логику для инициализации вкладки проблем
+      console.log("Issues tab activated");
+      
+      // Пример получения проблем (в реальном приложении будет другая логика)
+      setIssues([
+        {
+          filePath: "/example/path/file1.tsx",
+          fileName: "file1.tsx",
+          issues: [
+            {
+              severity: "error",
+              message: "Пример ошибки в файле",
+              line: 10,
+              column: 5,
+              endLine: 10,
+              endColumn: 20
+            }
+          ]
+        }
+      ]);
+    }
+  }, [activeView]);
+
+  // Функция для обработки клика по проблеме
+  const handleIssueClick = (filePath: string, line: number, column: number) => {
+    console.log(`Issue clicked: ${filePath}:${line}:${column}`);
+    // Здесь будет логика для открытия файла в указанной позиции
+  };
+
+  // Функция для получения иконки по типу проблемы
+  const getSeverityIcon = (severity: 'error' | 'warning' | 'info') => {
+    switch (severity) {
+      case 'error':
+        return <AlertCircle size={14} className="severity-icon error" />;
+      case 'warning':
+        return <AlertTriangle size={14} className="severity-icon warning" />;
+      case 'info':
+        return <Info size={14} className="severity-icon info" />;
+    }
+  };
+
+  // Функция для отображения проблем
+  const renderIssues = () => {
+    const filteredIssues = getFilteredIssues();
+    
+    if (filteredIssues.length === 0) {
+      return (
+        <div className="no-issues">
+          <div className="no-issues-content">
+            <div className="icon-container">
+              <Check size={24} color="#4caf50" />
+            </div>
+            <span>Нет обнаруженных проблем</span>
+          </div>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="issues-list">
+        {filteredIssues.map((fileIssue) => (
+          <div key={fileIssue.filePath} className="file-issues">
+            <div 
+              className="file-header"
+              onClick={() => toggleFileExpand(fileIssue.filePath)}
+            >
+              {expandedFiles.has(fileIssue.filePath) ? 
+                <ChevronDown size={16} /> : 
+                <ChevronRight size={16} />
+              }
+              <div className="file-name">
+                {fileIssue.fileName}
+              </div>
+              <div className="issue-counts">
+                {fileIssue.issues.filter((i) => i.severity === 'error').length > 0 && (
+                  <span className="error-count">
+                    {fileIssue.issues.filter((i) => i.severity === 'error').length} <AlertCircle size={12} />
+                  </span>
+                )}
+                {fileIssue.issues.filter((i) => i.severity === 'warning').length > 0 && (
+                  <span className="warning-count">
+                    {fileIssue.issues.filter((i) => i.severity === 'warning').length} <AlertTriangle size={12} />
+                  </span>
+                )}
+              </div>
+            </div>
+            
+            {expandedFiles.has(fileIssue.filePath) && (
+              <div className="issue-details">
+                {fileIssue.issues.map((issue, idx) => (
+                  <div 
+                    key={`${fileIssue.filePath}-${idx}`} 
+                    className="issue-item"
+                    onClick={() => handleIssueClick(fileIssue.filePath, issue.line, issue.column)}
+                  >
+                    {getSeverityIcon(issue.severity)}
+                    <div className="issue-message">{issue.message}</div>
+                    <div className="issue-position">
+                      строка {issue.line}, столбец {issue.column}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Скрытие панели терминала
+  const hideTerminalPanel = () => {
+    // В реальном приложении здесь будет логика скрытия панели
+    console.log("Hiding terminal panel");
+  };
+
+  // Обработка изменения активной вкладки
+  useEffect(() => {
+    console.log(`Active tab changed to ${activeTab}`);
+    
+    // Если активный вид - не терминал, ничего не делаем
+    if (activeView !== "terminal") return;
+    
+    // Используем доступные переменные tabIndex и tab
+    const tabIndex = tabs.findIndex(tab => tab.id === activeTab);
+    const tab = tabIndex !== -1 ? tabs[tabIndex] : null;
+    
+    // Если терминал еще не инициализирован, инициализируем его
+    if (!tab?.terminal) {
+      initializeTerminal(activeTab);
+    } else {
+      // Если терминал уже инициализирован, просто отображаем его
+      if (terminalRef.current) {
+        // Очищаем контейнер перед отображением терминала
+        terminalRef.current.innerHTML = '';
+        
+        // Открываем терминал заново
+        tab.terminal?.open(terminalRef.current);
+        
+        // Подгоняем размер и фокусируемся
+        setTimeout(() => {
+          if (tab.fitAddon) {
+            tab.fitAddon.fit();
+            
+            // Если есть активный процесс, обновляем размер
+            if (tab.terminalId !== null) {
+              const { rows, cols } = tab.terminal!;
+              invoke("resize_pty", { 
+                terminalId: tab.terminalId,
+                rows,
+                cols
+              }).catch(err => {
+                console.error("Failed to resize terminal:", err);
+              });
+            }
+            
+            // Устанавливаем фокус на терминал для ввода
+            setTimeout(() => {
+              tab.terminal?.focus();
+            }, 50);
+          }
+        }, 50);
+        
+        // Добавляем автофокус при клике по области терминала
+        if (terminalRef.current) {
+          const terminal = tab.terminal;
+          const clickHandler = () => {
+            terminal?.focus();
+          };
+          
+          // Удаляем предыдущие обработчики перед добавлением нового
+          terminalRef.current.removeEventListener('click', clickHandler);
+          terminalRef.current.addEventListener('click', clickHandler);
+        }
+        
+        // Проверяем, установлен ли обработчик данных, если нет - устанавливаем
+        if (!tab.dataHandlerAttached && tab.terminalId !== null) {
+          console.log(`Setting up data handler for activated tab ${tab.id}`);
+          setupTerminalDataHandler(tab.terminal, tab.terminalId, tab.id);
+        }
+      }
+    }
+  }, [activeTab, tabs, activeView]);
+
+  // Добавляем объявление currentTabIndex и currentTab только один раз перед рендерингом компонента
   const currentTabIndex = tabs.findIndex(tab => tab.id === activeTab);
   const currentTab = currentTabIndex !== -1 ? tabs[currentTabIndex] : null;
 
