@@ -36,6 +36,7 @@ interface TerminalCommand {
   time: string;
   status?: 'success' | 'error' | 'running' | null;
   exitCode?: number | null;
+  output?: string; // Добавляем поле для хранения вывода команды
 }
 
 // Интерфейс для данных вкладки терминала
@@ -75,6 +76,10 @@ export const Terminal = () => {
     warnings: true,
     info: true
   });
+  
+  // Состояние для модального окна деталей команды
+  const [showCommandDetails, setShowCommandDetails] = useState(false);
+  const [selectedCommand, setSelectedCommand] = useState<TerminalCommand | null>(null);
   
   // Refs
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -221,6 +226,9 @@ export const Terminal = () => {
               output.includes('не может') ||
               output.includes('CommandNotFoundException') ||
               output.includes('Не удается найти') ||
+              output.includes('неопознанная команда') ||
+              output.includes('cannot be recognized') ||
+              output.includes('unrecognized') ||
               (output.includes('строка:') && output.includes('знак:')) || // PowerShell показывает ошибки так
               (output.includes('CategoryInfo') && output.includes('ErrorRecord'))) {
             return { status: 'error' as const, exitCode: 1 };
@@ -237,15 +245,39 @@ export const Terminal = () => {
               { status: 'error' as const, exitCode };
           }
           
-          // Если видим приглашение ввода после команды и нет ошибок, вероятно команда успешно завершилась
-          if (output.includes('PS C:') && 
-              !output.includes('строка:') && 
-              !output.includes('CategoryInfo') &&
-              !output.includes('ошибка') &&
-              !output.includes('error') &&
-              !output.includes('wrong') &&
-              !output.includes('Не удалось') &&
-              !output.includes('cannot')) {
+          // Более тщательная проверка для неудачного выполнения
+          // Мы ищем приглашение PowerShell (PS C:) НО также проверяем, что нет ошибок
+          if (output.includes('PS C:')) {
+            // Ищем любые признаки ошибок, которые могут сопровождать приглашение PowerShell
+            const errorIndicators = [
+              'строка:', 'знак:', 'CategoryInfo', 'ErrorRecord',
+              'ошибка', 'error', 'wrong', 'Не удалось', 'cannot',
+              'не распознано', 'is not recognized', 'не найден', 
+              'not found', 'Exception', 'не является'
+            ];
+            
+            // Если найден хотя бы один индикатор ошибки - команда завершилась с ошибкой
+            for (const indicator of errorIndicators) {
+              if (output.includes(indicator)) {
+                return { status: 'error' as const, exitCode: 1 };
+              }
+            }
+            
+            // Проверка наличия пустой строки перед приглашением PS C:
+            // Обычно ошибки выводятся, затем идет пустая строка, затем приглашение
+            // Если такой последовательности нет, возможно команда не успела вывести ошибку
+            // или это первый запуск терминала
+            const psPromptIndex = output.lastIndexOf('PS C:');
+            if (psPromptIndex > 0) {
+              const outputBeforePrompt = output.substring(0, psPromptIndex);
+              // Если вывод содержит только начальное сообщение и приглашение, не считаем это успешным выполнением
+              if (outputBeforePrompt.includes('Терминал X-Avto') && 
+                  output.split('PS C:').length <= 2) {
+                return null; // Не определяем статус сразу
+              }
+            }
+            
+            // Если дошли сюда, вероятно команда выполнилась успешно
             return { status: 'success' as const, exitCode: 0 };
           }
           
@@ -301,6 +333,51 @@ export const Terminal = () => {
             
             // Обновляем только если команда всё ещё в статусе 'running'
             if (lastCommand.status === 'running') {
+              // Для первой команды в истории, добавляем дополнительную проверку
+              // В случае первой команды ожидаем немного дольше перед установкой статуса
+              // чтобы убедиться, что вывод ошибки полностью прибыл
+              if (lastCommandIndex === 0 && statusInfo.status === 'success') {
+                // Для первой команды, добавляем задержку перед установкой статуса "success"
+                setTimeout(() => {
+                  setTabs(latestTabs => {
+                    const latestTab = latestTabs.find(t => t.id === tab.id);
+                    if (!latestTab || latestTab.history.length === 0) return latestTabs;
+                    
+                    // Повторно проверяем вывод на наличие ошибок
+                    // Используем всю информацию, доступную на момент задержки
+                    const latestOutput = outputTrackerRef.current.get(terminalId)?.lastOutput || '';
+                    
+                    // Если в выводе теперь есть признаки ошибки, меняем статус
+                    if (latestOutput.includes('error') || 
+                        latestOutput.includes('ошибка') ||
+                        latestOutput.includes('не распознано') ||
+                        latestOutput.includes('not recognized')) {
+                      // Обнаружена ошибка после задержки
+                      const newTabs = [...latestTabs];
+                      const tabToUpdate = newTabs.findIndex(t => t.id === tab.id);
+                      if (tabToUpdate !== -1 && newTabs[tabToUpdate].history.length > 0) {
+                        const cmdIndex = 0; // Первая команда
+                        newTabs[tabToUpdate] = {
+                          ...newTabs[tabToUpdate],
+                          history: [
+                            {
+                              ...newTabs[tabToUpdate].history[cmdIndex],
+                              status: 'error',
+                              exitCode: 1
+                            },
+                            ...newTabs[tabToUpdate].history.slice(1)
+                          ]
+                        };
+                        return newTabs;
+                      }
+                    }
+                    return latestTabs;
+                  });
+                }, 500); // Задержка 500мс для проверки наличия ошибок
+              }
+              
+              // Обновляем команду с новым статусом и добавляем вывод
+              const existingOutput = lastCommand.output || '';
               updatedTabs[tabIndex] = {
                 ...updatedTabs[tabIndex],
                 history: [
@@ -308,10 +385,35 @@ export const Terminal = () => {
                   {
                     ...lastCommand,
                     status: statusInfo.status,
-                    exitCode: statusInfo.exitCode
+                    exitCode: statusInfo.exitCode,
+                    output: existingOutput + output // Добавляем вывод к существующему
                   }
                 ]
               };
+              return updatedTabs;
+            }
+          }
+          
+          // Если в истории есть выполняющиеся команды, добавляем вывод к последней активной команде
+          if (tab.history.length > 0) {
+            const lastCommandIndex = tab.history.length - 1;
+            const lastCommand = tab.history[lastCommandIndex];
+            
+            if (lastCommand.status === 'running') {
+              const updatedTabs = [...prevTabs];
+              const existingOutput = lastCommand.output || '';
+              
+              updatedTabs[tabIndex] = {
+                ...updatedTabs[tabIndex],
+                history: [
+                  ...tab.history.slice(0, lastCommandIndex),
+                  {
+                    ...lastCommand,
+                    output: existingOutput + output // Добавляем вывод к существующему
+                  }
+                ]
+              };
+              
               return updatedTabs;
             }
           }
@@ -383,7 +485,8 @@ export const Terminal = () => {
         command: command.trim(),
         time: formattedTime,
         status: 'running',
-        exitCode: null
+        exitCode: null,
+        output: '' // Инициализируем пустое поле для вывода
       };
       
       const newHistory = [...updatedTabs[tabIndex].history, commandEntry];
@@ -1315,6 +1418,18 @@ export const Terminal = () => {
     return currentTab.history || [];
   }, [currentTab]);
 
+  // Обработчик нажатия кнопки "Подробнее"
+  const handleShowCommandDetails = (command: TerminalCommand) => {
+    setSelectedCommand(command);
+    setShowCommandDetails(true);
+  };
+  
+  // Функция закрытия модального окна
+  const closeCommandDetails = () => {
+    setShowCommandDetails(false);
+    setSelectedCommand(null);
+  };
+
   return (
     <div className="terminal-container">
       {/* Ошибка терминала */}
@@ -1415,6 +1530,12 @@ export const Terminal = () => {
                       <span style={{ color: '#2196f3' }}>⟳</span>
                     )}
                   </div>
+                  <button 
+                    className="command-details-btn"
+                    onClick={() => handleShowCommandDetails(cmd)}
+                  >
+                    Подробнее
+                  </button>
                 </div>
               ))
             ) : (
@@ -1425,6 +1546,40 @@ export const Terminal = () => {
           </div>
         </div>
       </div>
+      
+      {/* Модальное окно для отображения деталей команды */}
+      {showCommandDetails && selectedCommand && (
+        <div className="command-details-modal">
+          <div className="command-details-content">
+            <div className="command-details-header">
+              <h3>Детали команды</h3>
+              <button className="close-modal-btn" onClick={closeCommandDetails}>×</button>
+            </div>
+            <div className="command-details-info">
+              <div className="command-details-row">
+                <span className="detail-label">Команда:</span>
+                <span className="detail-value">{selectedCommand.command}</span>
+              </div>
+              <div className="command-details-row">
+                <span className="detail-label">Время:</span>
+                <span className="detail-value">{selectedCommand.time}</span>
+              </div>
+              <div className="command-details-row">
+                <span className="detail-label">Статус:</span>
+                <span className="detail-value">
+                  {selectedCommand.status === 'success' && <span className="status-success">Успешно</span>}
+                  {selectedCommand.status === 'error' && <span className="status-error">Ошибка (код: {selectedCommand.exitCode || 'н/д'})</span>}
+                  {selectedCommand.status === 'running' && <span className="status-running">Выполняется</span>}
+                </span>
+              </div>
+            </div>
+            <div className="command-output">
+              <div className="output-header">Вывод команды:</div>
+              <pre className="output-content">{selectedCommand.output || 'Нет доступного вывода'}</pre>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
