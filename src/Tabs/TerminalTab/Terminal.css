@@ -214,6 +214,27 @@
   font-size: 13px;
   font-weight: bold;
   color: #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.history-clear-btn {
+  background: none;
+  border: none;
+  color: #999;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+
+.history-clear-btn:hover {
+  background-color: #333;
+  color: #fff;
 }
 
 /* История команд */
@@ -249,6 +270,31 @@
   right: 12px;
   font-weight: 700;
   font-size: 16px;
+}
+
+.history-item-actions {
+  display: flex;
+  gap: 5px;
+  align-self: flex-end;
+  margin-top: 8px;
+}
+
+.command-delete-btn {
+  background: #3a3a3a;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #ccc;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  line-height: 1;
+  transition: all 0.2s ease;
+}
+
+.command-delete-btn:hover {
+  background: #f44336;
+  color: white;
+  border-color: #f44336;
 }
 
 /* Кнопка "Подробнее" в истории команд */

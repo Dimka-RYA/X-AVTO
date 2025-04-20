@@ -32,11 +32,12 @@ interface IssueInfo {
 
 // Интерфейс для команд терминала
 interface TerminalCommand {
+  id?: number;  // ID в базе данных
   command: string;
   time: string;
   status?: 'success' | 'error' | 'running' | null;
   exitCode?: number | null;
-  output?: string; // Добавляем поле для хранения вывода команды
+  output?: string;
 }
 
 // Интерфейс для данных вкладки терминала
@@ -46,8 +47,9 @@ interface TerminalTabData {
   terminal: XTerm | null;
   fitAddon: FitAddon | null;
   history: TerminalCommand[];
-  terminalId: number | null; // ID процесса в Rust бэкенде
-  dataHandlerAttached: boolean; // Флаг, указывающий, прикреплен ли обработчик данных
+  terminalId: number | null;
+  dataHandlerAttached: boolean;
+  saved?: boolean; // Флаг, указывающий, что вкладка сохранена в БД
 }
 
 export const Terminal = () => {
@@ -378,18 +380,26 @@ export const Terminal = () => {
               
               // Обновляем команду с новым статусом и добавляем вывод
               const existingOutput = lastCommand.output || '';
+              const updatedCommand = {
+                ...lastCommand,
+                status: statusInfo.status,
+                exitCode: statusInfo.exitCode,
+                output: existingOutput + output
+              };
+              
               updatedTabs[tabIndex] = {
                 ...updatedTabs[tabIndex],
                 history: [
                   ...tab.history.slice(0, lastCommandIndex),
-                  {
-                    ...lastCommand,
-                    status: statusInfo.status,
-                    exitCode: statusInfo.exitCode,
-                    output: existingOutput + output // Добавляем вывод к существующему
-                  }
+                  updatedCommand
                 ]
               };
+              
+              // Сохраняем обновленную команду в БД, но не блокируем основной поток
+              setTimeout(() => {
+                saveCommandToDatabase(tab.id, updatedCommand);
+              }, 0);
+              
               return updatedTabs;
             }
           }
@@ -402,17 +412,23 @@ export const Terminal = () => {
             if (lastCommand.status === 'running') {
               const updatedTabs = [...prevTabs];
               const existingOutput = lastCommand.output || '';
+              const updatedCommand = {
+                ...lastCommand,
+                output: existingOutput + output
+              };
               
               updatedTabs[tabIndex] = {
                 ...updatedTabs[tabIndex],
                 history: [
                   ...tab.history.slice(0, lastCommandIndex),
-                  {
-                    ...lastCommand,
-                    output: existingOutput + output // Добавляем вывод к существующему
-                  }
+                  updatedCommand
                 ]
               };
+              
+              // Сохраняем обновленную команду в БД, но не блокируем основной поток
+              setTimeout(() => {
+                saveCommandToDatabase(tab.id, updatedCommand);
+              }, 0);
               
               return updatedTabs;
             }
@@ -449,38 +465,52 @@ export const Terminal = () => {
   
   // Добавление команды в историю
   const addCommandToHistory = (tabId: number, command: string) => {
-    // Если команда пустая или содержит только пробелы, игнорируем
+    // Пропускаем пустые команды
     if (!command || command.trim().length === 0) {
       return;
     }
     
-    // Игнорируем системные сообщения
-    if (command.includes('[') || 
-        command.includes('Терминал X-Avto') || 
-        command.includes('PS C:')) {
+    // Предотвращаем дублирование системных сообщений или пустых строк
+    if (command.includes("Терминал X-Avto") || command === '\r' || command === '\n' || command === '\r\n') {
       return;
     }
+    
+    // Форматируем текущее время
+    const now = new Date();
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    const seconds = now.getSeconds().toString().padStart(2, '0');
+    const formattedTime = `${hours}:${minutes}:${seconds}`;
     
     setTabs(prevTabs => {
       const tabIndex = prevTabs.findIndex(tab => tab.id === tabId);
       if (tabIndex === -1) return prevTabs;
       
-      // Проверяем, не повторяется ли команда
-      const lastCommand = prevTabs[tabIndex].history[prevTabs[tabIndex].history.length - 1];
-      if (lastCommand && lastCommand.command === command) {
+      const tab = prevTabs[tabIndex];
+      
+      // Проверяем, есть ли уже такая команда с тем же временем (предотвращение дубликатов)
+      const lastThreeSeconds = Date.now() - 3000; // 3 секунды назад
+      const recentDuplicate = tab.history.find(cmd => {
+        // Проверяем совпадение команды и что время создания в пределах 3 секунд
+        if (cmd.command === command) {
+          const cmdTime = cmd.time.split(':');
+          const cmdDate = new Date();
+          cmdDate.setHours(parseInt(cmdTime[0], 10));
+          cmdDate.setMinutes(parseInt(cmdTime[1], 10));
+          cmdDate.setSeconds(parseInt(cmdTime[2], 10));
+          
+          return cmdDate.getTime() > lastThreeSeconds;
+        }
+        return false;
+      });
+      
+      // Если найден недавний дубликат, не добавляем команду
+      if (recentDuplicate) {
+        console.log(`Предотвращено дублирование команды: ${command}`);
         return prevTabs;
       }
       
-      // Создаем форматированную метку времени
-      const now = new Date();
-      const formattedTime = now.toLocaleTimeString('ru-RU', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      });
-      
       // Добавляем команду в историю с начальным статусом
-      const updatedTabs = [...prevTabs];
       const commandEntry: TerminalCommand = {
         command: command.trim(),
         time: formattedTime,
@@ -489,17 +519,22 @@ export const Terminal = () => {
         output: '' // Инициализируем пустое поле для вывода
       };
       
-      const newHistory = [...updatedTabs[tabIndex].history, commandEntry];
+      // Ограничиваем количество команд в истории (не более 100)
+      const newHistory = [
+        ...tab.history,
+        commandEntry
+      ].slice(-100);
       
-      // Ограничиваем размер истории максимум 100 командами
-      if (newHistory.length > 100) {
-        newHistory.shift(); // Удаляем самую старую команду
-      }
-      
+      const updatedTabs = [...prevTabs];
       updatedTabs[tabIndex] = {
         ...updatedTabs[tabIndex],
         history: newHistory
       };
+      
+      // Сохраняем новую команду в БД
+      setTimeout(() => {
+        saveCommandToDatabase(tabId, commandEntry);
+      }, 0);
       
       return updatedTabs;
     });
@@ -515,6 +550,9 @@ export const Terminal = () => {
     // Настраиваем глобальный слушатель вывода сразу при монтировании компонента
     setupGlobalListener();
 
+    // Загружаем сохраненные вкладки терминала из БД
+    loadSavedTabs();
+    
     // Запускаем первый терминал автоматически только если активный вид - терминал
     if (activeView === "terminal") {
       const tabIndex = tabs.findIndex(tab => tab.id === activeTab);
@@ -1126,22 +1164,26 @@ export const Terminal = () => {
   // Добавление новой вкладки
   const handleAddTab = () => {
     const newTabId = tabs.length > 0 ? Math.max(...tabs.map(tab => tab.id)) + 1 : 1;
+    const newTab = {
+      id: newTabId,
+      name: `Консоль ${newTabId}`,
+      terminal: null,
+      fitAddon: null,
+      history: [],
+      terminalId: null,
+      dataHandlerAttached: false,
+      saved: false
+    };
     
-    setTabs(prevTabs => [
-      ...prevTabs,
-      {
-        id: newTabId,
-        name: `Консоль ${newTabId}`,
-        terminal: null,
-        fitAddon: null,
-        history: [],
-        terminalId: null,
-        dataHandlerAttached: false
-      }
-    ]);
+    setTabs(prevTabs => [...prevTabs, newTab]);
     
     // Активируем новую вкладку
     setActiveTab(newTabId);
+    
+    // Сохраняем новую вкладку в БД
+    setTimeout(() => {
+      saveTabToDatabase(newTab);
+    }, 100);
   };
 
   // Закрытие вкладки
@@ -1182,11 +1224,24 @@ export const Terminal = () => {
     if (activeTab === id) {
       setActiveTab(newTabs[newTabs.length - 1].id);
     }
+    
+    // Удаляем вкладку из БД
+    deleteTabFromDatabase(id);
   };
 
   // Активация вкладки
   const handleTabActivation = (tabId: number) => {
     if (activeTab === tabId) return; // Ничего не делаем, если вкладка уже активна
+    
+    // Обновляем время использования вкладки в БД
+    const tab = tabs.find(tab => tab.id === tabId);
+    if (tab) {
+      // Обновляем время использования только в БД, не меняя объект в памяти
+      setTimeout(() => {
+        saveTabToDatabase(tab);
+      }, 100);
+    }
+    
     setActiveTab(tabId);
   };
 
@@ -1430,6 +1485,237 @@ export const Terminal = () => {
     setSelectedCommand(null);
   };
 
+  // Загрузка сохраненных вкладок из БД
+  const loadSavedTabs = async () => {
+    try {
+      // Получаем список сохраненных вкладок
+      const savedTabs = await invoke<any[]>('get_saved_terminal_tabs');
+      console.log('Loaded saved tabs:', savedTabs);
+      
+      if (savedTabs && savedTabs.length > 0) {
+        // Если есть сохраненные вкладки, создаем новый массив вкладок
+        const loadedTabs: TerminalTabData[] = [];
+        
+        // Получаем историю команд для каждой вкладки
+        for (const tab of savedTabs) {
+          const commands = await invoke<any[]>('get_terminal_commands', { tabId: tab.id });
+          console.log(`Loaded ${commands.length} commands for tab ${tab.id}`);
+          
+          // Фильтруем дубликаты команд перед добавлением в историю
+          const uniqueCommands = new Map<string, any>();
+          for (const cmd of commands) {
+            const key = `${cmd.command}_${cmd.time}`;
+            // Если команда с таким ключом уже есть, сохраняем только последнюю версию
+            uniqueCommands.set(key, cmd);
+          }
+          
+          // Преобразуем формат команд из БД в формат TerminalCommand
+          const history: TerminalCommand[] = Array.from(uniqueCommands.values()).map(cmd => ({
+            id: cmd.id,
+            command: cmd.command,
+            time: cmd.time,
+            status: cmd.status as ('success' | 'error' | 'running' | null),
+            exitCode: cmd.exit_code,
+            output: cmd.output
+          }));
+          
+          // Добавляем вкладку в массив
+          loadedTabs.push({
+            id: tab.id,
+            name: tab.name,
+            terminal: null,
+            fitAddon: null,
+            history,
+            terminalId: null,
+            dataHandlerAttached: false,
+            saved: true
+          });
+        }
+        
+        // Обновляем состояние с загруженными вкладками
+        if (loadedTabs.length > 0) {
+          setTabs(loadedTabs);
+          setActiveTab(loadedTabs[0].id); // Активируем первую вкладку
+        }
+      }
+    } catch (error) {
+      console.error('Error loading tabs from database:', error);
+      setError(`Ошибка загрузки вкладок из базы данных: ${error}`);
+      setTimeout(() => setError(null), 3000);
+    }
+  };
+  
+  // Сохранение вкладки в БД
+  const saveTabToDatabase = async (tab: TerminalTabData) => {
+    try {
+      // Формируем текущее время в формате ISO строки
+      const lastUsed = new Date().toISOString();
+      
+      // Сохраняем вкладку
+      await invoke('save_terminal_tab', {
+        tab: {
+          id: tab.id,
+          name: tab.name,
+          last_used: lastUsed
+        }
+      });
+      
+      console.log(`Tab ${tab.id} saved to database`);
+      
+      // Устанавливаем флаг, что вкладка сохранена
+      setTabs(prevTabs => {
+        const updatedTabs = [...prevTabs];
+        const tabIndex = updatedTabs.findIndex(t => t.id === tab.id);
+        if (tabIndex !== -1) {
+          updatedTabs[tabIndex] = {
+            ...updatedTabs[tabIndex],
+            saved: true
+          };
+        }
+        return updatedTabs;
+      });
+      
+      // Сохраняем историю команд для вкладки
+      for (const command of tab.history) {
+        await saveCommandToDatabase(tab.id, command);
+      }
+      
+    } catch (error) {
+      console.error(`Error saving tab ${tab.id} to database:`, error);
+    }
+  };
+  
+  // Сохранение команды в БД
+  const saveCommandToDatabase = async (tabId: number, command: TerminalCommand) => {
+    if (!command.command || command.command.trim().length === 0) {
+      return;
+    }
+    
+    try {
+      // Проверяем, возможно команда уже есть в БД с тем же временем и текстом
+      if (command.id) {
+        // Если у команды уже есть ID, это обновление, а не новая запись
+        const commandRecord = {
+          id: command.id,
+          terminal_tab_id: tabId,
+          command: command.command,
+          time: command.time,
+          status: command.status,
+          exit_code: command.exitCode,
+          output: command.output
+        };
+        
+        const id = await invoke<number>('save_terminal_command', { command: commandRecord });
+        console.log(`Command updated in database with ID: ${id}`);
+      } else {
+        // Для новых команд
+        const commandRecord = {
+          id: command.id,
+          terminal_tab_id: tabId,
+          command: command.command,
+          time: command.time,
+          status: command.status,
+          exit_code: command.exitCode,
+          output: command.output
+        };
+        
+        const id = await invoke<number>('save_terminal_command', { command: commandRecord });
+        console.log(`Command saved to database with ID: ${id}`);
+        
+        // Если команда не имела ID, обновляем его в состоянии
+        if (!command.id) {
+          setTabs(prevTabs => {
+            const updatedTabs = [...prevTabs];
+            const tabIndex = updatedTabs.findIndex(t => t.id === tabId);
+            if (tabIndex !== -1) {
+              const cmdIndex = updatedTabs[tabIndex].history.findIndex(
+                cmd => cmd.command === command.command && cmd.time === command.time
+              );
+              if (cmdIndex !== -1) {
+                updatedTabs[tabIndex].history[cmdIndex] = {
+                  ...updatedTabs[tabIndex].history[cmdIndex],
+                  id
+                };
+              }
+            }
+            return updatedTabs;
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`Error saving command for tab ${tabId} to database:`, error);
+    }
+  };
+  
+  // Удаление вкладки из БД
+  const deleteTabFromDatabase = async (tabId: number) => {
+    try {
+      await invoke('delete_terminal_tab', { tabId });
+      console.log(`Tab ${tabId} deleted from database`);
+    } catch (error) {
+      console.error(`Error deleting tab ${tabId} from database:`, error);
+    }
+  };
+
+  // Очистка истории терминала
+  const handleClearHistory = async () => {
+    const tab = tabs.find(tab => tab.id === activeTab);
+    if (!tab) return;
+    
+    try {
+      // Очищаем историю в БД
+      await invoke('clear_terminal_history', { tabId: tab.id });
+      
+      // Очищаем историю в состоянии
+      setTabs(prevTabs => {
+        const updatedTabs = [...prevTabs];
+        const tabIndex = updatedTabs.findIndex(t => t.id === activeTab);
+        if (tabIndex !== -1) {
+          updatedTabs[tabIndex] = {
+            ...updatedTabs[tabIndex],
+            history: []
+          };
+        }
+        return updatedTabs;
+      });
+      
+      console.log(`History cleared for tab ${activeTab}`);
+    } catch (error) {
+      console.error(`Error clearing history for tab ${activeTab}:`, error);
+      setError(`Ошибка очистки истории: ${error}`);
+      setTimeout(() => setError(null), 3000);
+    }
+  };
+  
+  // Удаление команды из истории
+  const handleDeleteCommand = async (commandId?: number) => {
+    if (!commandId) return;
+    
+    try {
+      // Удаляем команду из БД
+      await invoke('delete_terminal_command', { commandId });
+      
+      // Удаляем команду из состояния
+      setTabs(prevTabs => {
+        const updatedTabs = [...prevTabs];
+        const tabIndex = updatedTabs.findIndex(t => t.id === activeTab);
+        if (tabIndex !== -1) {
+          updatedTabs[tabIndex] = {
+            ...updatedTabs[tabIndex],
+            history: updatedTabs[tabIndex].history.filter(cmd => cmd.id !== commandId)
+          };
+        }
+        return updatedTabs;
+      });
+      
+      console.log(`Command ${commandId} deleted`);
+    } catch (error) {
+      console.error(`Error deleting command ${commandId}:`, error);
+      setError(`Ошибка удаления команды: ${error}`);
+      setTimeout(() => setError(null), 3000);
+    }
+  };
+
   return (
     <div className="terminal-container">
       {/* Ошибка терминала */}
@@ -1512,11 +1798,18 @@ export const Terminal = () => {
         <div className="history-panel">
           <div className="history-header">
             История команд
+            <button 
+              className="history-clear-btn" 
+              onClick={handleClearHistory}
+              title="Очистить историю"
+            >
+              <AiOutlineClear size={14} />
+            </button>
           </div>
           <div className="terminal-history">
             {currentHistory.length > 0 ? (
               currentHistory.map((cmd, index) => (
-                <div key={index} className="history-item">
+                <div key={cmd.id || index} className="history-item">
                   <div className="command-name">{cmd.command}</div>
                   <div className="command-time">{cmd.time}</div>
                   <div className="command-status">
@@ -1530,12 +1823,21 @@ export const Terminal = () => {
                       <span style={{ color: '#2196f3' }}>⟳</span>
                     )}
                   </div>
-                  <button 
-                    className="command-details-btn"
-                    onClick={() => handleShowCommandDetails(cmd)}
-                  >
-                    Подробнее
-                  </button>
+                  <div className="history-item-actions">
+                    <button 
+                      className="command-details-btn"
+                      onClick={() => handleShowCommandDetails(cmd)}
+                    >
+                      Подробнее
+                    </button>
+                    <button 
+                      className="command-delete-btn"
+                      onClick={() => handleDeleteCommand(cmd.id)}
+                      title="Удалить из истории"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
               ))
             ) : (

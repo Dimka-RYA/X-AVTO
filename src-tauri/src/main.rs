@@ -6,9 +6,9 @@ mod utils;
 mod ports;
 mod components;
 
-use std::sync::Arc;
-use tauri::{async_runtime::Mutex, Builder, Manager};
+use tauri::{Builder, Manager};
 use utils::terminal::PtyState;
+use utils::db::DbState;
 
 // Import the commands explicitly
 use ports::commands::{get_network_ports, close_port, refresh_ports_command};
@@ -33,6 +33,13 @@ fn main() {
             // Запускаем фоновый поток для периодического обновления кэша портов
             start_ports_refresh_thread(app.state::<ports::PortsCache>());
             
+            // Инициализация базы данных
+            let app_handle = app.app_handle();
+            let db_state = DbState::new(&app_handle)
+                .expect("Не удалось инициализировать базу данных");
+            app.manage(db_state);
+            println!("[Main] База данных успешно инициализирована");
+            
             #[cfg(debug_assertions)]
             {
                 let window = app.get_webview_window("main").unwrap();
@@ -56,6 +63,15 @@ fn main() {
             utils::terminal::clear_terminal,
             utils::terminal::close_terminal_process,
             utils::terminal::get_active_terminals,
+            
+            // База данных терминала
+            utils::db::save_terminal_tab,
+            utils::db::get_saved_terminal_tabs,
+            utils::db::delete_terminal_tab,
+            utils::db::save_terminal_command,
+            utils::db::get_terminal_commands,
+            utils::db::delete_terminal_command,
+            utils::db::clear_terminal_history,
             
             // Компоненты интерфейса
             minimize_window,
