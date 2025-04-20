@@ -43,11 +43,11 @@ fn main() {
             Ok(())
         })
         .manage(ports::create_ports_cache())
-        .manage(PtyState {
-            master: Arc::new(Mutex::new(None)),
-            writer: Arc::new(Mutex::new(None)),
-        })
+        .manage(PtyState::new())
         .invoke_handler(tauri::generate_handler![
+            // Базовая функция
+            greet,
+            
             // Терминал
             utils::terminal::start_process,
             utils::terminal::resize_pty,
@@ -55,6 +55,7 @@ fn main() {
             utils::terminal::change_directory,
             utils::terminal::clear_terminal,
             utils::terminal::close_terminal_process,
+            utils::terminal::get_active_terminals,
             
             // Компоненты интерфейса
             minimize_window,
