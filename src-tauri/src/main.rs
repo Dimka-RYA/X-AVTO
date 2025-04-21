@@ -87,6 +87,7 @@ fn main() {
             utils::system_info::get_system_info,
             utils::system_info::get_memory_details,
             utils::system_info::get_temperatures,
+            utils::system_info::set_monitoring_active,
             
             // Компоненты интерфейса
             minimize_window,

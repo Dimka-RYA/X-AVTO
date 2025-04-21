@@ -1,0 +1,3 @@
+            // Запускаем фоновый поток для обновления системной информации
+            start_system_info_thread(app.app_handle().clone(), app.state::<Arc<utils::system_info::SystemInfoCache>>().inner().clone());
+            println!("[SystemInfo] Запущен фоновый поток обновления системной информации"); 

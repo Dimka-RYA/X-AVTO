@@ -144,57 +144,50 @@ const StatusTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  // Функция получения данных о системе
-  const fetchSystemInfo = async () => {
-    try {
-      console.log('Запрос данных о системе...');
-      const info = await invoke('get_system_info');
-      console.log('Получены данные из API:', info);
-      
-      setSystemInfo(info as SystemInfo);
-      setLoading(false);
-      setLastUpdate(new Date());
-    } catch (err) {
-      console.error('Ошибка получения информации о системе:', err);
-      setError(`Ошибка получения данных: ${err}`);
-      setLoading(false);
-    }
-  };
-
-  // Настройка прослушивания событий и первоначальная загрузка данных
   useEffect(() => {
-    // Начальная загрузка данных
-    fetchSystemInfo();
-    
-    // Настройка прослушивателя событий для обновления данных
-    let unlistenFn: (() => void) | null = null;
-    
-    const setupListener = async () => {
+    let unlistenSystemInfo: (() => void) | null = null;
+    let unlistenInitialized: (() => void) | null = null;
+
+    async function setupListeners() {
       try {
-        unlistenFn = await listen<SystemInfo>('system-info-updated', (event) => {
-          console.log('Получены обновленные данные через событие:', event);
+        // Слушаем обновления системной информации
+        unlistenSystemInfo = await listen('system-info-updated', (event) => {
           setSystemInfo(event.payload as SystemInfo);
           setLoading(false);
-          setLastUpdate(new Date());
         });
-        
-        console.log('Настроено прослушивание событий system-info-updated');
+
+        // Слушаем событие инициализации мониторинга
+        unlistenInitialized = await listen('monitoring-initialized', () => {
+          console.log('Мониторинг инициализирован и готов к использованию');
+        });
+
+        // Активируем мониторинг при монтировании компонента
+        await invoke('set_monitoring_active', { active: true });
+        console.log('Мониторинг активирован для вкладки Status');
+
+        // Запрашиваем начальные данные
+        const initialData = await invoke('get_system_info');
+        setSystemInfo(initialData as SystemInfo);
+        setLoading(false);
       } catch (err) {
-        console.error('Ошибка при настройке прослушивания событий:', err);
-        // Если не удалось настроить прослушивание, используем запасной вариант с таймером
-        const interval = setInterval(fetchSystemInfo, 2000);
-        return () => clearInterval(interval);
+        console.error('Ошибка при настройке слушателей:', err);
+        setError('Не удалось получить системную информацию');
+        setLoading(false);
       }
-    };
-    
-    setupListener();
-    
-    // Очистка при размонтировании компонента
+    }
+
+    setupListeners();
+
+    // Очистка при размонтировании
     return () => {
-      if (unlistenFn) {
-        unlistenFn();
-        console.log('Прослушивание событий system-info-updated остановлено');
-      }
+      // Деактивируем мониторинг при размонтировании компонента
+      invoke('set_monitoring_active', { active: false })
+        .then(() => console.log('Мониторинг деактивирован для вкладки Status'))
+        .catch(console.error);
+
+      // Отписываемся от событий
+      if (unlistenSystemInfo) unlistenSystemInfo();
+      if (unlistenInitialized) unlistenInitialized();
     };
   }, []);
 

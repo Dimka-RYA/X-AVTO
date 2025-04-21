@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tauri::Emitter;
 use lazy_static::lazy_static;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ProcessorInfo {
@@ -191,9 +192,29 @@ impl SystemInfoCache {
     }
 }
 
+// Глобальное состояние мониторинга - активен ли он
+lazy_static! {
+    static ref MONITORING_ACTIVE: AtomicBool = AtomicBool::new(false);
+}
+
+// Команда для включения/выключения мониторинга
+#[tauri::command]
+pub fn set_monitoring_active(active: bool) {
+    println!("[SystemInfo] Установка активности мониторинга: {}", active);
+    MONITORING_ACTIVE.store(active, Ordering::SeqCst);
+}
+
+// Функция для проверки активности мониторинга
+fn is_monitoring_active() -> bool {
+    MONITORING_ACTIVE.load(Ordering::SeqCst)
+}
+
 // Создаём функцию для запуска фонового потока обновления данных
 pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCache>) {
     println!("[SystemInfo] Запуск многопоточной системы мониторинга");
+    
+    // Изначально устанавливаем мониторинг как неактивный
+    MONITORING_ACTIVE.store(false, Ordering::SeqCst);
     
     // Поток для обновления данных CPU (частое обновление)
     let cpu_cache = cache.cpu.clone();
@@ -201,16 +222,19 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
     thread::spawn(move || {
         let mut update_count = 0;
         loop {
-            // Обновляем только динамические данные CPU (нагрузку и текущую частоту)
-            update_cpu_dynamic_data(&cpu_cache);
-            
-            // Отправляем событие обновления CPU
-            let cpu_data = cpu_cache.data.read().unwrap().clone();
-            let _ = cpu_app_handle.emit("cpu-info-updated", cpu_data);
-            
-            update_count += 1;
-            if update_count % 100 == 0 {
-                println!("[SystemInfo] CPU данные обновлены {} раз", update_count);
+            // Проверяем активен ли мониторинг
+            if is_monitoring_active() {
+                // Обновляем только динамические данные CPU (нагрузку и текущую частоту)
+                update_cpu_dynamic_data(&cpu_cache);
+                
+                // Отправляем событие обновления CPU
+                let cpu_data = cpu_cache.data.read().unwrap().clone();
+                let _ = cpu_app_handle.emit("cpu-info-updated", cpu_data);
+                
+                update_count += 1;
+                if update_count % 100 == 0 {
+                    println!("[SystemInfo] CPU данные обновлены {} раз", update_count);
+                }
             }
             
             // Оптимальная задержка для обновления CPU (100мс даёт 10 обновлений в секунду)
@@ -222,8 +246,11 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
     let cpu_static_cache = cache.cpu.clone();
     thread::spawn(move || {
         loop {
-            // Обновляем статические данные CPU (модель, архитектура, и т.д.)
-            update_cpu_static_data(&cpu_static_cache);
+            // Проверяем активен ли мониторинг
+            if is_monitoring_active() {
+                // Обновляем статические данные CPU (модель, архитектура, и т.д.)
+                update_cpu_static_data(&cpu_static_cache);
+            }
             
             // Эти данные редко меняются, обновляем раз в 5 минут
             thread::sleep(Duration::from_secs(300));
@@ -236,16 +263,19 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
     thread::spawn(move || {
         let mut update_count = 0;
         loop {
-            // Обновляем данные о памяти
-            update_memory_data(&memory_cache);
-            
-            // Отправляем событие обновления памяти
-            let memory_data = memory_cache.data.read().unwrap().clone();
-            let _ = memory_app_handle.emit("memory-info-updated", memory_data);
-            
-            update_count += 1;
-            if update_count % 100 == 0 {
-                println!("[SystemInfo] Данные памяти обновлены {} раз", update_count);
+            // Проверяем активен ли мониторинг
+            if is_monitoring_active() {
+                // Обновляем данные о памяти
+                update_memory_data(&memory_cache);
+                
+                // Отправляем событие обновления памяти
+                let memory_data = memory_cache.data.read().unwrap().clone();
+                let _ = memory_app_handle.emit("memory-info-updated", memory_data);
+                
+                update_count += 1;
+                if update_count % 100 == 0 {
+                    println!("[SystemInfo] Данные памяти обновлены {} раз", update_count);
+                }
             }
             
             // Память обновляем раз в 500мс (2 обновления в секунду)
@@ -259,16 +289,19 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
     thread::spawn(move || {
         let mut update_count = 0;
         loop {
-            // Обновляем данные о дисках
-            update_disk_data(&disks_cache);
-            
-            // Отправляем событие обновления дисков
-            let disks_data = disks_cache.data.read().unwrap().clone();
-            let _ = disks_app_handle.emit("disks-info-updated", disks_data);
-            
-            update_count += 1;
-            if update_count % 100 == 0 {
-                println!("[SystemInfo] Данные дисков обновлены {} раз", update_count);
+            // Проверяем активен ли мониторинг
+            if is_monitoring_active() {
+                // Обновляем данные о дисках
+                update_disk_data(&disks_cache);
+                
+                // Отправляем событие обновления дисков
+                let disks_data = disks_cache.data.read().unwrap().clone();
+                let _ = disks_app_handle.emit("disks-info-updated", disks_data);
+                
+                update_count += 1;
+                if update_count % 100 == 0 {
+                    println!("[SystemInfo] Данные дисков обновлены {} раз", update_count);
+                }
             }
             
             // Диски обновляем раз в секунду, частые обновления не нужны
@@ -278,29 +311,45 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
     
     // Главный поток для отправки полной системной информации
     let main_cache = cache.clone();
+    let main_app_handle = app_handle.clone();
     thread::spawn(move || {
         let mut update_count = 0;
         loop {
-            // Получаем полную системную информацию из кэшей
-            let system_info = main_cache.get_system_info();
-            
-            // Обновляем время последнего полного обновления
-            {
-                let mut last_update = main_cache.last_full_update.write().unwrap();
-                *last_update = Instant::now();
-            }
-            
-            // Отправляем событие с полной системной информацией
-            let _ = app_handle.emit("system-info-updated", system_info);
-            
-            update_count += 1;
-            if update_count % 100 == 0 {
-                println!("[SystemInfo] Полная системная информация обновлена {} раз", update_count);
+            // Проверяем активен ли мониторинг
+            if is_monitoring_active() {
+                // Получаем полную системную информацию из кэшей
+                let system_info = main_cache.get_system_info();
+                
+                // Обновляем время последнего полного обновления
+                {
+                    let mut last_update = main_cache.last_full_update.write().unwrap();
+                    *last_update = Instant::now();
+                }
+                
+                // Отправляем событие с полной системной информацией
+                let _ = main_app_handle.emit("system-info-updated", system_info);
+                
+                update_count += 1;
+                if update_count % 100 == 0 {
+                    println!("[SystemInfo] Полная системная информация обновлена {} раз", update_count);
+                }
             }
             
             // UI обновляем раз в 200мс (5 обновлений в секунду)
             thread::sleep(Duration::from_millis(200));
         }
+    });
+    
+    // Изначально активируем мониторинг, чтобы наполнить кеш начальными данными
+    MONITORING_ACTIVE.store(true, Ordering::SeqCst);
+    
+    // Через 2 секунды деактивируем мониторинг если пользователь еще не переключился на вкладку
+    let init_app_handle = app_handle.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(2));
+        // Отправляем событие, что мониторинг готов и можно его деактивировать
+        let _ = init_app_handle.emit("monitoring-initialized", true);
+        MONITORING_ACTIVE.store(false, Ordering::SeqCst);
     });
 }
 
@@ -317,6 +366,11 @@ pub fn get_system_info(cache: tauri::State<'_, Arc<SystemInfoCache>>) -> SystemI
 
 // Функция для обновления динамических данных CPU
 fn update_cpu_dynamic_data(cache: &CpuCache) {
+    // Проверяем активен ли мониторинг, если нет - не обновляем
+    if !is_monitoring_active() {
+        return;
+    }
+
     // Проверяем время последнего обновления - не чаще чем раз в 50 мс
     {
         let last_update = cache.last_update.read().unwrap();
@@ -455,6 +509,11 @@ fn update_cpu_static_data(cache: &CpuCache) {
 
 // Функция для обновления данных о памяти - оптимизированная версия
 fn update_memory_data(cache: &MemoryCache) {
+    // Проверяем активен ли мониторинг, если нет - не обновляем
+    if !is_monitoring_active() {
+        return;
+    }
+
     // Проверяем время последнего обновления - не чаще чем раз в 100 мс
     {
         let last_update = cache.last_update.read().unwrap();
@@ -495,6 +554,11 @@ fn update_memory_data(cache: &MemoryCache) {
 
 // Функция для обновления данных о дисках - оптимизированная версия
 fn update_disk_data(cache: &DiskCache) {
+    // Проверяем активен ли мониторинг, если нет - не обновляем
+    if !is_monitoring_active() {
+        return;
+    }
+
     // Проверяем время последнего обновления - не чаще чем раз в 500 мс
     {
         let last_update = cache.last_update.read().unwrap();
