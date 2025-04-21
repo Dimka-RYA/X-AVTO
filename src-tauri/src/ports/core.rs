@@ -96,14 +96,14 @@ pub fn start_ports_refresh_thread(ports_cache: State<PortsCache>) {
                         let new_pids = ports.iter().map(|p| (p.pid.clone(), format!("{}:{}", p.protocol, p.local_addr))).collect::<HashSet<_>>();
                         
                         // Обновляем кэш только если есть изменения или это первый запуск
-                        if (old_pids != new_pids || is_first_run) {
-                            if (should_log_detailed) {
+                        if old_pids != new_pids || is_first_run {
+                            if should_log_detailed {
                                 println!("[Ports] Обнаружены изменения в списке портов, обновляем кэш");
                             }
                             
                             if let Ok(mut cached_ports) = cache.lock() {
                                 // При первом запуске загружаем порты поочередно для снижения нагрузки
-                                if (is_first_run) {
+                                if is_first_run {
                                     println!("[Ports] Первоначальная загрузка данных, поочередное обновление");
                                     
                                     // Разбиваем данные на пакеты
@@ -117,7 +117,7 @@ pub fn start_ports_refresh_thread(ports_cache: State<PortsCache>) {
                                         // Загружаем только часть данных
                                         let batch = ports[start_idx..end_idx].to_vec();
                                         
-                                        if (should_log_detailed || batch_idx == 0 || batch_idx == total_batches - 1) {
+                                        if should_log_detailed || batch_idx == 0 || batch_idx == total_batches - 1 {
                                             println!("[Ports] Загрузка пакета {}/{}: порты {}-{}", 
                                                 batch_idx + 1, total_batches, start_idx, end_idx);
                                         }
@@ -138,14 +138,14 @@ pub fn start_ports_refresh_thread(ports_cache: State<PortsCache>) {
                                     // Стандартное обновление после первой загрузки
                                     println!("[Ports] Обновляем кэш: было {} портов, новых {}", cached_ports.len(), ports.len());
                                     *cached_ports = ports;
-                                    if (should_log_detailed) {
+                                    if should_log_detailed {
                                         println!("[Ports] Кэш обновлен: {} портов", cached_ports.len());
                                     }
                                 }
-                            } else if (should_log_detailed) {
+                            } else if should_log_detailed {
                                 println!("[Ports] Не удалось получить блокировку для обновления кэша");
                             }
-                        } else if (should_log_detailed) {
+                        } else if should_log_detailed {
                             println!("[Ports] Изменений в списке портов не обнаружено");
                         }
                     }

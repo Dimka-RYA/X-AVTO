@@ -5252,6 +5252,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "encoding_rs",
+ "lazy_static",
  "portable-pty",
  "rusqlite",
  "serde",

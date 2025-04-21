@@ -1,5 +1,4 @@
 use std::process::Command;
-use std::collections::HashMap;
 use tauri::{Emitter, Manager, Runtime, State};
 use tokio::task;
 use std::thread;

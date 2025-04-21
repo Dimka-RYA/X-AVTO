@@ -183,6 +183,21 @@
   text-align: center;
 }
 
+/* Сообщение "Нет данных" */
+.no-data-message {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 80px;
+  color: #888;
+  font-size: 16px;
+  font-style: italic;
+  text-align: center;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  margin: 10px 0;
+}
+
 /* Стили для секции памяти */
 .memory-gauge {
   width: 100px;

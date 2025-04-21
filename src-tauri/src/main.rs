@@ -9,6 +9,8 @@ mod components;
 use tauri::{Builder, Manager};
 use utils::terminal::PtyState;
 use utils::db::DbState;
+use utils::system_info::{create_system_info_cache, start_system_info_thread};
+use std::sync::Arc;
 
 // Import the commands explicitly
 use ports::commands::{get_network_ports, close_port, refresh_ports_command};
@@ -22,6 +24,9 @@ fn greet(name: &str) -> String {
 }
 
 fn main() {
+    // Создаем кэш для системной информации
+    let system_info_cache = create_system_info_cache();
+
     Builder::default()
         .setup(|app| {
             // Создаем и сохраняем кэш как состояние Tauri
@@ -32,6 +37,10 @@ fn main() {
             
             // Запускаем фоновый поток для периодического обновления кэша портов
             start_ports_refresh_thread(app.state::<ports::PortsCache>());
+            
+            // Запускаем фоновый поток для обновления системной информации
+            start_system_info_thread(app.app_handle().clone(), app.state::<Arc<utils::system_info::SystemInfoCache>>().inner().clone());
+            println!("[SystemInfo] Запущен фоновый поток обновления системной информации");
             
             // Инициализация базы данных
             let app_handle = app.app_handle();
@@ -51,6 +60,7 @@ fn main() {
         })
         .manage(ports::create_ports_cache())
         .manage(PtyState::new())
+        .manage(system_info_cache)
         .invoke_handler(tauri::generate_handler![
             // Базовая функция
             greet,

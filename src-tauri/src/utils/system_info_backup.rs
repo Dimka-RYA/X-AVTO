@@ -4,12 +4,13 @@ use std::collections::HashMap;
 use std::process::Command;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use tauri::Emitter;
 use lazy_static::lazy_static;
+use log::{info, debug, error, warn};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProcessorInfo {
     pub name: String,
     pub usage: f32,
@@ -27,7 +28,7 @@ pub struct ProcessorInfo {
     pub family: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DiskInfo {
     pub name: String,
     pub mount_point: String,
@@ -38,38 +39,7 @@ pub struct DiskInfo {
     pub usage_percent: f32,
 }
 
-#[derive(Debug, Clone)]
-struct MemoryData {
-    total: u64,       // общая память в МБ
-    used: u64,        // использованная память в МБ
-    usage_percent: f64, // процент использования
-}
-
-impl Default for MemoryData {
-    fn default() -> Self {
-        Self {
-            total: 0,
-            used: 0,
-            usage_percent: 0.0,
-        }
-    }
-}
-
-impl From<MemoryData> for MemoryInfo {
-    fn from(data: MemoryData) -> Self {
-        MemoryInfo {
-            total_memory: data.total * 1024 * 1024,  // Преобразуем обратно в байты
-            used_memory: data.used * 1024 * 1024,    // Преобразуем обратно в байты
-            free_memory: (data.total - data.used) * 1024 * 1024, // Преобразуем обратно в байты
-            available_memory: (data.total - data.used) * 1024 * 1024, // Преобразуем обратно в байты
-            usage_percent: data.usage_percent as f32,
-            memory_type: "DDR4".to_string(), // Заглушка
-            frequency: "3200 MHz".to_string(), // Заглушка
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MemoryInfo {
     pub total_memory: u64,
     pub used_memory: u64,
@@ -80,226 +50,180 @@ pub struct MemoryInfo {
     pub frequency: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SystemInfo {
     pub cpu: ProcessorInfo,
     pub disks: Vec<DiskInfo>,
     pub memory: MemoryInfo,
 }
 
-// Улучшенная многопоточная система кэширования и обновления
-#[derive(Clone)]
-pub struct CpuCache {
-    pub data: Arc<RwLock<ProcessorInfo>>,
-    pub static_data: Arc<RwLock<HashMap<String, String>>>,
-    pub last_update: Arc<RwLock<Instant>>,
-    pub static_data_last_update: Arc<RwLock<Instant>>,
-}
-
-impl Default for CpuCache {
-    fn default() -> Self {
-        Self {
-            data: Arc::new(RwLock::new(ProcessorInfo::default())),
-            static_data: Arc::new(RwLock::new(HashMap::new())),
-            last_update: Arc::new(RwLock::new(Instant::now())),
-            static_data_last_update: Arc::new(RwLock::new(Instant::now())),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct MemoryCache {
-    pub data: Arc<RwLock<MemoryInfo>>,
-    pub last_update: Arc<RwLock<Instant>>,
-}
-
-impl Default for MemoryCache {
-    fn default() -> Self {
-        Self {
-            data: Arc::new(RwLock::new(MemoryInfo::default())),
-            last_update: Arc::new(RwLock::new(Instant::now())),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct DiskCache {
-    pub data: Arc<RwLock<Vec<DiskInfo>>>,
-    pub last_update: Arc<RwLock<Instant>>,
-}
-
-impl Default for DiskCache {
-    fn default() -> Self {
-        Self {
-            data: Arc::new(RwLock::new(Vec::new())),
-            last_update: Arc::new(RwLock::new(Instant::now())),
-        }
-    }
-}
-
-#[derive(Clone)]
+// Добавляем структуру кэша системной информации
 pub struct SystemInfoCache {
-    pub cpu: CpuCache,
-    pub memory: MemoryCache,
-    pub disk: DiskCache,
-    pub last_full_update: Arc<RwLock<Instant>>,
-}
-
-impl Default for SystemInfoCache {
-    fn default() -> Self {
-        Self {
-            cpu: CpuCache::default(),
-            memory: MemoryCache::default(),
-            disk: DiskCache::default(),
-            last_full_update: Arc::new(RwLock::new(Instant::now())),
-        }
-    }
+    data: RwLock<Option<SystemInfo>>,
+    last_updated: RwLock<std::time::Instant>
 }
 
 impl SystemInfoCache {
-    pub fn new() -> Self {
-        Self {
-            cpu: CpuCache { 
-                data: Arc::new(RwLock::new(ProcessorInfo::default())),
-                static_data: Arc::new(RwLock::new(HashMap::new())),
-                last_update: Arc::new(RwLock::new(Instant::now())),
-                static_data_last_update: Arc::new(RwLock::new(Instant::now())),
-            },
-            memory: MemoryCache {
-                data: Arc::new(RwLock::new(MemoryInfo::default())),
-                last_update: Arc::new(RwLock::new(Instant::now())),
-            },
-            disk: DiskCache {
-                data: Arc::new(RwLock::new(Vec::new())),
-                last_update: Arc::new(RwLock::new(Instant::now())),
-            },
-            last_full_update: Arc::new(RwLock::new(Instant::now())),
+    fn new() -> Self {
+        SystemInfoCache {
+            data: RwLock::new(None),
+            last_updated: RwLock::new(std::time::Instant::now())
         }
     }
 
-    // Получить полную системную информацию из кэшей
-    pub fn get_system_info(&self) -> SystemInfo {
-        let cpu_data = self.cpu.data.read().unwrap().clone();
-        let memory_data = self.memory.data.read().unwrap().clone();
-        let disks_data = self.disk.data.read().unwrap().clone();
-        
-        SystemInfo {
-            cpu: cpu_data,
-            memory: memory_data,
-            disks: disks_data,
-        }
+    fn update(&self, info: SystemInfo) {
+        let mut data = self.data.write().unwrap();
+        *data = Some(info);
+        let mut last_updated = self.last_updated.write().unwrap();
+        *last_updated = std::time::Instant::now();
     }
+
+    fn get(&self) -> Option<SystemInfo> {
+        let data = self.data.read().unwrap();
+        data.clone()
+    }
+
+    fn get_age(&self) -> Duration {
+        let last_updated = self.last_updated.read().unwrap();
+        last_updated.elapsed()
+    }
+}
+
+// Структура для хранения данных о нагрузке процессора
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CpuLoadInfo {
+    pub usage: f32,              // Общая нагрузка в процентах
+    pub frequency: f64,          // Частота в ГГц
+    pub per_core_usage: Vec<f32>, // Нагрузка по ядрам
+    pub timestamp: u64,          // Временная метка в мс
+}
+
+// Структура для кэширования данных о нагрузке процессора
+pub struct CpuLoadCache {
+    pub info: Mutex<CpuLoadInfo>,
+    pub system: Mutex<System>,
+}
+
+// Создаем кэш для данных о нагрузке процессора
+pub fn create_cpu_load_cache() -> CpuLoadCache {
+    let mut system = System::new_all();
+    system.refresh_all();
+    
+    // Инициализируем с нулевыми данными
+    let per_core_usage = vec![0.0; system.processors().len()];
+    
+    let info = CpuLoadInfo {
+        usage: 0.0,
+        frequency: 0.0,
+        per_core_usage,
+        timestamp: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_millis() as u64,
+    };
+    
+    CpuLoadCache {
+        info: Mutex::new(info),
+        system: Mutex::new(system),
+    }
+}
+
+// Запуск потока для обновления данных о нагрузке процессора
+pub fn start_cpu_load_thread(app_handle: AppHandle, cpu_load_cache: Arc<CpuLoadCache>) {
+    thread::spawn(move || {
+        loop {
+            // Блок для ограничения времени блокировки мьютексов
+            {
+                let mut system = cpu_load_cache.system.lock().unwrap();
+                system.refresh_cpu();
+                
+                // Получаем нагрузку по ядрам
+                let per_core_usage: Vec<f32> = system.processors().iter()
+                    .map(|p| p.cpu_usage())
+                    .collect();
+                
+                // Рассчитываем среднюю нагрузку
+                let avg_usage: f32 = if !per_core_usage.is_empty() {
+                    per_core_usage.iter().sum::<f32>() / per_core_usage.len() as f32
+                } else {
+                    0.0
+                };
+                
+                // Получаем среднюю частоту
+                let frequency = get_cpu_frequency_in_ghz(&system);
+                
+                // Временная метка
+                let timestamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or(Duration::from_secs(0))
+                    .as_millis() as u64;
+                
+                // Обновляем данные в кэше
+                let mut info = cpu_load_cache.info.lock().unwrap();
+                *info = CpuLoadInfo {
+                    usage: avg_usage,
+                    frequency,
+                    per_core_usage,
+                    timestamp,
+                };
+                
+                // Отправляем событие с обновленными данными
+                let _ = app_handle.emit_all("cpu-load-updated", info.clone());
+            }
+            
+            // Пауза между обновлениями (100 мс для очень частого обновления)
+            thread::sleep(Duration::from_millis(100));
+        }
+    });
+}
+
+// Функция для получения текущей нагрузки CPU
+#[tauri::command]
+pub fn get_cpu_load(cpu_load_cache: tauri::State<Arc<CpuLoadCache>>) -> Result<CpuLoadInfo, String> {
+    match cpu_load_cache.info.lock() {
+        Ok(info) => Ok(info.clone()),
+        Err(_) => Err("Не удалось получить данные о нагрузке процессора".into()),
+    }
+}
+
+// Утилитная функция для получения средней частоты процессора в ГГц
+fn get_cpu_frequency_in_ghz(system: &System) -> f64 {
+    let processors = system.processors();
+    if processors.is_empty() {
+        return 0.0;
+    }
+    
+    // Рассчитываем среднюю частоту
+    let total_freq: u64 = processors.iter()
+        .map(|p| p.frequency())
+        .sum();
+        
+    // Преобразуем МГц в ГГц и возвращаем среднее
+    (total_freq as f64 / processors.len() as f64) / 1000.0
 }
 
 // Создаём функцию для запуска фонового потока обновления данных
 pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCache>) {
-    println!("[SystemInfo] Запуск многопоточной системы мониторинга");
+    println!("[SystemInfo] Запуск фонового потока обновления системной информации");
     
-    // Поток для обновления данных CPU (частое обновление)
-    let cpu_cache = cache.cpu.clone();
-    let cpu_app_handle = app_handle.clone();
     thread::spawn(move || {
         let mut update_count = 0;
+        
         loop {
-            // Обновляем только динамические данные CPU (нагрузку и текущую частоту)
-            update_cpu_dynamic_data(&cpu_cache);
+            // Получаем информацию о системе
+            let system_info = get_system_info_internal();
+            cache.update(system_info.clone());
             
-            // Отправляем событие обновления CPU
-            let cpu_data = cpu_cache.data.read().unwrap().clone();
-            let _ = cpu_app_handle.emit("cpu-info-updated", cpu_data);
-            
-            update_count += 1;
-            if update_count % 20 == 0 {
-                println!("[SystemInfo] CPU данные обновлены {} раз", update_count);
-            }
-            
-            // Пауза перед следующим обновлением
-            thread::sleep(Duration::from_millis(100)); // Очень частое обновление CPU
-        }
-    });
-    
-    // Поток для обновления статических данных CPU (редкое обновление)
-    let cpu_static_cache = cache.cpu.clone();
-    thread::spawn(move || {
-        loop {
-            // Обновляем статические данные CPU (модель, архитектура, и т.д.)
-            update_cpu_static_data(&cpu_static_cache);
-            
-            // Ждем долго, т.к. эти данные меняются очень редко
-            thread::sleep(Duration::from_secs(300)); // Обновляем раз в 5 минут
-        }
-    });
-    
-    // Поток для обновления данных памяти (среднее обновление)
-    let memory_cache = cache.memory.clone();
-    let memory_app_handle = app_handle.clone();
-    thread::spawn(move || {
-        let mut update_count = 0;
-        loop {
-            // Обновляем данные о памяти
-            update_memory_data(&memory_cache);
-            
-            // Отправляем событие обновления памяти
-            let memory_data = memory_cache.data.read().unwrap().clone();
-            let _ = memory_app_handle.emit("memory-info-updated", memory_data);
-            
-            update_count += 1;
-            if update_count % 10 == 0 {
-                println!("[SystemInfo] Данные памяти обновлены {} раз", update_count);
-            }
-            
-            // Пауза перед следующим обновлением
-            thread::sleep(Duration::from_millis(250)); // Обновляем каждые 250 мс
-        }
-    });
-    
-    // Поток для обновления данных дисков (редкое обновление)
-    let disks_cache = cache.disk.clone();
-    let disks_app_handle = app_handle.clone();
-    thread::spawn(move || {
-        let mut update_count = 0;
-        loop {
-            // Обновляем данные о дисках
-            update_disk_data(&disks_cache);
-            
-            // Отправляем событие обновления дисков
-            let disks_data = disks_cache.data.read().unwrap().clone();
-            let _ = disks_app_handle.emit("disks-info-updated", disks_data);
-            
-            update_count += 1;
-            if update_count % 5 == 0 {
-                println!("[SystemInfo] Данные дисков обновлены {} раз", update_count);
-            }
-            
-            // Пауза перед следующим обновлением
-            thread::sleep(Duration::from_secs(1)); // Обновляем раз в секунду
-        }
-    });
-    
-    // Главный поток для отправки полной системной информации
-    let main_cache = cache.clone();
-    thread::spawn(move || {
-        let mut update_count = 0;
-        loop {
-            // Получаем полную системную информацию из кэшей
-            let system_info = main_cache.get_system_info();
-            
-            // Обновляем время последнего полного обновления
-            {
-                let mut last_update = main_cache.last_full_update.write().unwrap();
-                *last_update = Instant::now();
-            }
-            
-            // Отправляем событие с полной системной информацией
+            // Отправляем событие с новыми данными
             let _ = app_handle.emit("system-info-updated", system_info);
             
             update_count += 1;
             if update_count % 10 == 0 {
-                println!("[SystemInfo] Полная системная информация обновлена {} раз", update_count);
+                println!("[SystemInfo] Обновлено {} раз", update_count);
             }
             
             // Пауза перед следующим обновлением
-            thread::sleep(Duration::from_millis(250)); // Обновляем каждые 250 мс
+            thread::sleep(Duration::from_millis(1000));
         }
     });
 }
@@ -312,197 +236,19 @@ pub fn create_system_info_cache() -> Arc<SystemInfoCache> {
 // Обновленная команда, которая теперь возвращает данные из кэша
 #[tauri::command]
 pub fn get_system_info(cache: tauri::State<'_, Arc<SystemInfoCache>>) -> SystemInfo {
-    cache.get_system_info()
-}
-
-// Функция для обновления динамических данных CPU
-fn update_cpu_dynamic_data(cache: &CpuCache) {
-    // Запускаем потоки для параллельного получения разных метрик
-    let usage_thread = thread::spawn(|| get_cpu_usage());
-    let frequency_thread = thread::spawn(|| get_current_cpu_frequency());
-    let temp_thread = thread::spawn(|| get_cpu_temperature());
-    
-    // Получаем результаты из потоков
-    let usage = usage_thread.join().unwrap_or_else(|_| {
-        println!("[ERROR] Не удалось получить данные о нагрузке CPU");
-        0.0
-    });
-    
-    let frequency = frequency_thread.join().unwrap_or_else(|_| {
-        println!("[ERROR] Не удалось получить данные о частоте CPU");
-        0.0
-    });
-    
-    let temp = match temp_thread.join() {
-        Ok(temp_data) => temp_data,
-        Err(_) => {
-            println!("[ERROR] Не удалось получить данные о температуре CPU");
-            None
-        }
-    };
-    
-    // Обновляем данные в кэше
-    let mut data = cache.data.write().unwrap();
-    data.usage = usage;
-    data.frequency = frequency;
-    data.temperature = temp;
-    
-    // Обновляем время последнего обновления
-    let mut last_update = cache.last_update.write().unwrap();
-    *last_update = Instant::now();
-}
-
-// Функция для обновления статических данных CPU
-fn update_cpu_static_data(cache: &CpuCache) {
-    // Получаем данные о CPU
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    
-    // Получаем базовую информацию о процессоре
-    let cpu_name = if let Some(cpu) = sys.cpus().first() {
-        cpu.brand().to_string()
-    } else {
-        "Unknown".to_string()
-    };
-    
-    // Получаем детальную информацию о процессоре
-    let cpu_details = get_cpu_details_cached();
-    
-    // Получаем базовую частоту процессора
-    let base_frequency = get_base_cpu_frequency();
-    
-    // Определяем максимальную частоту процессора
-    let max_frequency = cpu_details.get("MaxClockSpeed")
-        .map(|s| s.parse::<f64>().unwrap_or(0.0) / 1000.0) // Преобразуем МГц в ГГц
-        .unwrap_or(0.0);
-    
-    // Получаем количество потоков
-    let threads = cpu_details.get("ThreadCount")
-        .map(|s| s.parse::<usize>().unwrap_or(sys.cpus().len()))
-        .unwrap_or(sys.cpus().len());
-    
-    // Получаем архитектуру
-    let architecture = cpu_details.get("Architecture")
-        .map(|s| match s.as_str() {
-            "0" => "x86".to_string(),
-            "9" => "x64".to_string(),
-            "12" => "ARM".to_string(),
-            "13" => "ARM64".to_string(),
-            _ => "Unknown".to_string(),
-        })
-        .unwrap_or("Unknown".to_string());
-    
-    // Получаем размер кэша
-    let cache_size = cpu_details.get("L3CacheSize")
-        .map(|s| format!("{} KB", s))
-        .unwrap_or_else(|| {
-            cpu_details.get("cache size")
-                .cloned()
-                .unwrap_or_else(|| "Unknown".to_string())
-        });
-    
-    // Обновляем данные в кэше
-    {
-        let mut data = cache.data.write().unwrap();
-        data.name = cpu_name.clone();
-        data.cores = sys.cpus().len() / 2;
-        data.threads = threads;
-        data.base_frequency = base_frequency;
-        data.max_frequency = max_frequency;
-        data.architecture = architecture;
-        data.vendor_id = cpu_details.get("Manufacturer").cloned().unwrap_or_else(|| {
-            cpu_details.get("vendor_id").cloned().unwrap_or("Unknown".to_string())
-        });
-        data.model_name = cpu_details.get("Name").cloned().unwrap_or_else(|| {
-            cpu_details.get("model name").cloned().unwrap_or(cpu_name)
-        });
-        data.cache_size = cache_size;
-        data.stepping = cpu_details.get("Stepping").cloned().unwrap_or_else(|| {
-            cpu_details.get("stepping").cloned().unwrap_or("Unknown".to_string())
-        });
-        data.family = cpu_details.get("Family").cloned().unwrap_or_else(|| {
-            cpu_details.get("cpu family").cloned().unwrap_or("Unknown".to_string())
-        });
+    // Проверяем, есть ли данные в кэше
+    if let Some(info) = cache.get() {
+        // Проверяем возраст данных
+        let age = cache.get_age();
+        println!("[SystemInfo] Возраст данных в кэше: {:?} мс", age.as_millis());
+        
+        return info;
     }
     
-    // Обновляем время последнего обновления
-    let mut last_update = cache.static_data_last_update.write().unwrap();
-    *last_update = Instant::now();
+    // Если кэш пуст (первый запуск), получаем данные напрямую
+    println!("[SystemInfo] Кэш пуст, получаем данные напрямую");
+    get_system_info_internal()
 }
-
-// Функция для обновления данных о памяти
-fn update_memory_data(cache: &MemoryCache) {
-    let memory_thread = thread::spawn(|| {
-        // Получаем данные о памяти с помощью системной библиотеки sysinfo
-        let mut sys = System::new_all();
-        sys.refresh_memory();
-        
-        let total = sys.total_memory() / 1024 / 1024; // Преобразуем в МБ
-        let used = (sys.total_memory() - sys.available_memory()) / 1024 / 1024; // Преобразуем в МБ
-        let usage_percent = (used as f64 / total as f64) * 100.0;
-        
-        MemoryData {
-            total,
-            used,
-            usage_percent,
-        }
-    });
-    
-    match memory_thread.join() {
-        Ok(memory_data) => {
-            // Обновляем данные в кэше
-            let mut data = cache.data.write().unwrap();
-            *data = memory_data.into();
-            
-            // Обновляем время последнего обновления
-            let mut last_update = cache.last_update.write().unwrap();
-            *last_update = Instant::now();
-        },
-        Err(_) => {
-            println!("[ERROR] Не удалось получить данные о памяти");
-        }
-    }
-}
-
-// Функция для обновления данных о дисках
-fn update_disk_data(cache: &DiskCache) {
-    let disks = Disks::new();
-    let mut disks_info = Vec::new();
-    
-    for disk in disks.iter() {
-        let total = disk.total_space();
-        let available = disk.available_space();
-        let used = total - available;
-        let usage_percent = if total > 0 {
-            (used as f32 / total as f32) * 100.0
-        } else {
-            0.0
-        };
-        
-        // Преобразуем OsStr в String для файловой системы
-        let fs_string = disk.file_system().to_string_lossy().to_string();
-        
-        disks_info.push(DiskInfo {
-            name: disk.name().to_string_lossy().to_string(),
-            mount_point: disk.mount_point().to_string_lossy().to_string(),
-            available_space: disk.available_space(),
-            total_space: disk.total_space(),
-            file_system: fs_string,
-            is_removable: disk.is_removable(),
-            usage_percent,
-        });
-    }
-    
-    // Обновляем данные в кэше
-    let mut data = cache.data.write().unwrap();
-    *data = disks_info;
-    
-    // Обновляем время последнего обновления
-    let mut last_update = cache.last_update.write().unwrap();
-    *last_update = Instant::now();
-}
-
-// ------ Утилиты для получения данных ------
 
 // Кэшируем некоторые данные, которые редко меняются
 lazy_static! {
@@ -515,9 +261,11 @@ lazy_static! {
 // Оптимизированная функция для получения данных о процессоре с учетом потенциальных таймаутов
 #[cfg(target_os = "windows")]
 fn get_cpu_details() -> HashMap<String, String> {
+    let mut cpu_details = HashMap::new();
+    
     // Выполняем команду в отдельном потоке с таймаутом
     let guard = std::thread::spawn(|| {
-        let mut result: HashMap<String, String> = HashMap::new();
+        let mut result = HashMap::new();
         
         // На Windows используем wmic для получения дополнительной информации
         if let Ok(output) = Command::new("wmic")
@@ -544,13 +292,16 @@ fn get_cpu_details() -> HashMap<String, String> {
     
     // Ждем выполнения потока с таймаутом
     match guard.join() {
-        Ok(details) => details,
+        Ok(details) => cpu_details = details,
         Err(_) => {
             println!("[ERROR] Таймаут получения данных о процессоре");
             // Заглушка в случае таймаута
-            HashMap::new()
+            cpu_details.insert("Name".to_string(), "Unknown".to_string());
+            cpu_details.insert("Manufacturer".to_string(), "Unknown".to_string());
         }
     }
+    
+    cpu_details
 }
 
 // Функция для получения деталей процессора с кэшированием
@@ -744,7 +495,7 @@ fn convert_to_mb(bytes: u64) -> f64 {
 // Удаляем дублирующуюся функцию get_cpu_details, оставляем только одну реализацию
 #[cfg(target_os = "linux")]
 fn get_cpu_details() -> HashMap<String, String> {
-    let cpu_details = HashMap::new();
+    let mut cpu_details = HashMap::new();
     
     // На Linux читаем /proc/cpuinfo
     if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
@@ -852,103 +603,62 @@ fn get_cpu_temperature() -> Option<f32> {
     None
 }
 
-// Оптимизированная функция для получения нагрузки процессора на основе
-// формулы: Process CPU Usage = (Cycles for processes over last X seconds)/(Total cycles for last X seconds)
+// Оптимизированная функция для получения нагрузки процессора, максимально приближенная к диспетчеру задач Windows
 fn get_cpu_usage() -> f32 {
     #[cfg(target_os = "windows")]
     {
-        // Разработанная формула для расчета нагрузки по циклам процессора за последний период времени
-        // Используем более точный подход через счетчики производительности
+        // Измеряем средний показатель нагрузки процессора за 2 секунды (3 выборки)
+        // Это дает результат, максимально близкий к диспетчеру задач Windows
         if let Ok(output) = Command::new("powershell")
-            .args(["-NoProfile", "-Command", "
-                # Получаем базовые значения счетчиков 
-                $initialIdleTime = (Get-Counter '\\Processor(_Total)\\% Idle Time').CounterSamples.CookedValue
-                $initialProcTime = 100.0
-                
-                # Ждем для измерения дельты
-                Start-Sleep -Milliseconds 500
-                
-                # Получаем новые значения
-                $currentIdleTime = (Get-Counter '\\Processor(_Total)\\% Idle Time').CounterSamples.CookedValue
-                
-                # Расчет времени, затраченного процессами и общего времени процессора
-                $totalTime = 100.0
-                $cyclesUsedByProcesses = $totalTime - $currentIdleTime
-                
-                # Результат по формуле: процент циклов, использованных процессами
-                $cpuUsage = $cyclesUsedByProcesses
-                Write-Output $cpuUsage
-            "])
+            .args(["-Command", "Get-Counter -Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 3 | Select-Object -ExpandProperty CounterSamples | Select-Object -ExpandProperty CookedValue | Measure-Object -Average | Select-Object -ExpandProperty Average"])
             .output() 
         {
             if let Ok(output_str) = String::from_utf8(output.stdout) {
                 if let Ok(usage) = output_str.trim().parse::<f32>() {
-                    println!("[DEBUG] Нагрузка ЦП по циклам процессора: {}%", usage);
+                    println!("[DEBUG] Нагрузка ЦП через WMI (усредненная за 3 выборки): {}%", usage);
                     return usage;
                 }
             }
         }
         
-        // Альтернативный подход через Processor Time и временной интервал
+        // Запасной метод - измеряем нагрузку через PDH API
         if let Ok(output) = Command::new("powershell")
-            .args(["-NoProfile", "-Command", "
-                # Измеряем время начала
-                $startTime = Get-Date
-                
-                # Получаем начальные значения счетчиков
-                $startProc = (Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples.CookedValue
-                
-                # Ждем для измерения дельты
-                Start-Sleep -Milliseconds 500
-                
-                # Получаем итоговые значения
-                $endProc = (Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples.CookedValue
-                
-                # Считаем время замера
-                $timeSpan = (Get-Date) - $startTime
-                $seconds = $timeSpan.TotalSeconds
-                
-                # Результат: среднее значение загрузки за измеренный период
-                $usagePerSecond = ($endProc + $startProc) / 2
-                Write-Output $usagePerSecond
-            "])
+            .args(["-Command", "(Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter 'Name=\"_Total\"').PercentProcessorTime"])
             .output() 
         {
             if let Ok(output_str) = String::from_utf8(output.stdout) {
                 if let Ok(usage) = output_str.trim().parse::<f32>() {
-                    println!("[DEBUG] Нагрузка ЦП по времени процессора: {}%", usage);
+                    println!("[DEBUG] Нагрузка ЦП через CIM PercentProcessorTime: {}%", usage);
                     return usage;
                 }
             }
         }
         
-        // Запасной метод - получение через PDH API с более быстрым обновлением
-        if let Ok(output) = Command::new("powershell")
-            .args(["-Command", "
-                # Создаем запрос с двумя замерами для расчета относительной нагрузки
-                $pdh = New-Object System.Diagnostics.PerformanceCounter
-                $pdh.CategoryName = 'Processor'
-                $pdh.CounterName = '% Processor Time'
-                $pdh.InstanceName = '_Total'
-                
-                # Делаем первый замер
-                $firstSample = $pdh.NextValue()
-                
-                # Ждем для расчета дельты
-                Start-Sleep -Milliseconds 500
-                
-                # Делаем второй замер
-                $secondSample = $pdh.NextValue()
-                
-                # Возвращаем результат
-                Write-Output $secondSample
-            "])
+        // Запасной вариант через typeperf с усреднением
+        if let Ok(output) = Command::new("cmd")
+            .args(["/c", "typeperf -sc 3 -si 1 \"\\Processor(_Total)\\% Processor Time\" | findstr /v \"\\\"\" | findstr /v \"Timestamp\""])
             .output() 
         {
             if let Ok(output_str) = String::from_utf8(output.stdout) {
-                if let Ok(usage) = output_str.trim().parse::<f32>() {
-                    println!("[DEBUG] Нагрузка ЦП через PDH API: {}%", usage);
-                    return usage;
+                let lines: Vec<&str> = output_str.lines().collect();
+                
+                let mut sum = 0.0;
+                let mut count = 0;
+                
+                for line in lines {
+                    let parts: Vec<&str> = line.split(',').collect();
+                    if parts.len() >= 2 {
+                        if let Some(value_str) = parts[1].trim_matches('"').trim().parse::<f32>().ok() {
+                            sum += value_str;
+                            count += 1;
+                        }
+                    }
+                }
+                
+                if count > 0 {
+                    let avg = sum / count as f32;
+                    println!("[DEBUG] Нагрузка ЦП через typeperf (усредненная за {} выборок): {}%", count, avg);
+                    return avg;
                 }
             }
         }
@@ -990,53 +700,28 @@ fn get_cpu_usage() -> f32 {
     
     #[cfg(target_os = "linux")]
     {
-        // Для Linux используем подход через /proc/stat для получения данных о циклах
+        // Для Linux используем улучшенный метод с усреднением
         let guard = std::thread::spawn(|| {
             if let Ok(output) = Command::new("sh")
-                .args(["-c", "
-                    # Получаем первый замер циклов CPU
-                    read user nice system idle iowait irq softirq steal guest guest_nice < /proc/stat
-                    total_start=$((user + nice + system + idle + iowait + irq + softirq + steal))
-                    idle_start=$((idle + iowait))
-                    
-                    # Ждем для расчета дельты
-                    sleep 0.5
-                    
-                    # Получаем второй замер
-                    read user nice system idle iowait irq softirq steal guest guest_nice < /proc/stat
-                    total_end=$((user + nice + system + idle + iowait + irq + softirq + steal))
-                    idle_end=$((idle + iowait))
-                    
-                    # Расчет дельты
-                    total_delta=$((total_end - total_start))
-                    idle_delta=$((idle_end - idle_start))
-                    
-                    # Расчет загрузки по формуле: (общие циклы - простой) / общие циклы
-                    if [ $total_delta -gt 0 ]; then
-                        usage=$(( 100 * (total_delta - idle_delta) / total_delta ))
-                        echo $usage
-                    else
-                        echo 0
-                    fi
-                "])
+                .args(["-c", "mpstat 1 3 | tail -2 | head -1 | awk '{print 100-$13}'"])
                 .output() 
             {
                 if let Ok(output_str) = String::from_utf8(output.stdout) {
                     if let Ok(usage) = output_str.trim().parse::<f32>() {
-                        println!("[DEBUG] Нагрузка ЦП через /proc/stat (циклы): {}%", usage);
+                        println!("[DEBUG] Нагрузка ЦП через mpstat (усреднённая): {}%", usage);
                         return usage;
                     }
                 }
             }
             
-            // Запасной вариант через mpstat
+            // Запасной вариант через top
             if let Ok(output) = Command::new("sh")
-                .args(["-c", "mpstat 0.5 2 | tail -1 | awk '{print 100-$12}'"])
+                .args(["-c", "top -bn3 -d1 | grep '%Cpu' | tail -1 | awk '{print $2+$4}'"])
                 .output() 
             {
                 if let Ok(output_str) = String::from_utf8(output.stdout) {
                     if let Ok(usage) = output_str.trim().parse::<f32>() {
-                        println!("[DEBUG] Нагрузка ЦП через mpstat (циклы): {}%", usage);
+                        println!("[DEBUG] Нагрузка ЦП через top (усреднённая): {}%", usage);
                         return usage;
                     }
                 }
@@ -1215,32 +900,4 @@ pub fn get_temperatures() -> HashMap<String, f32> {
     }
     
     temperatures
-}
-
-#[derive(Debug, Clone)]
-pub struct ProcessorData {
-    pub usage: f32,           // Процент использования ЦПУ
-    pub frequency: f64,       // Частота в ГГц
-    pub temperature: Option<f32>,     // Температура в градусах Цельсия
-}
-
-impl Default for ProcessorData {
-    fn default() -> Self {
-        Self {
-            usage: 0.0,
-            frequency: 0.0,
-            temperature: None,
-        }
-    }
-}
-
-// Функция для обновления динамических данных в ProcessorInfo
-pub fn update_processor_info_with_dynamic_data(
-    mut processor_info: ProcessorInfo,
-    dynamic_data: &ProcessorData,
-) -> ProcessorInfo {
-    processor_info.usage = dynamic_data.usage;
-    processor_info.frequency = dynamic_data.frequency;
-    processor_info.temperature = dynamic_data.temperature;
-    processor_info
 } 
