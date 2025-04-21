@@ -27,3 +27,5 @@ encoding_rs = "0.8.35"
 portable-pty = "0.9.0"
 rusqlite = { version = "0.30.0", features = ["bundled"] }
 chrono = "0.4"
+sysinfo = "0.30.7"
+winapi = { version = "0.3", features = ["winuser", "wincon", "processenv", "fileapi", "handleapi", "namedpipeapi"] }

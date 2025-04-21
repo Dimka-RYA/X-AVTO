@@ -73,6 +73,11 @@ fn main() {
             utils::db::delete_terminal_command,
             utils::db::clear_terminal_history,
             
+            // Системная информация
+            utils::system_info::get_system_info,
+            utils::system_info::get_memory_details,
+            utils::system_info::get_temperatures,
+            
             // Компоненты интерфейса
             minimize_window,
             toggle_maximize,

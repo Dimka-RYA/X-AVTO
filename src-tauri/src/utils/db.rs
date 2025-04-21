@@ -1,9 +1,7 @@
 use rusqlite::{Connection, Result, params};
 use serde::{Serialize, Deserialize};
-use std::path::Path;
 use std::fs;
 use std::sync::{Arc, Mutex};
-use chrono::prelude::*;
 use tauri::{AppHandle, Manager};
 
 // Структура для хранения данных о команде в истории
