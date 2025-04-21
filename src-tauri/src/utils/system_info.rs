@@ -209,12 +209,12 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
             let _ = cpu_app_handle.emit("cpu-info-updated", cpu_data);
             
             update_count += 1;
-            if update_count % 20 == 0 {
+            if update_count % 100 == 0 {
                 println!("[SystemInfo] CPU данные обновлены {} раз", update_count);
             }
             
-            // Пауза перед следующим обновлением
-            thread::sleep(Duration::from_millis(100)); // Очень частое обновление CPU
+            // Оптимальная задержка для обновления CPU (100мс даёт 10 обновлений в секунду)
+            thread::sleep(Duration::from_millis(100));
         }
     });
     
@@ -225,12 +225,12 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
             // Обновляем статические данные CPU (модель, архитектура, и т.д.)
             update_cpu_static_data(&cpu_static_cache);
             
-            // Ждем долго, т.к. эти данные меняются очень редко
-            thread::sleep(Duration::from_secs(300)); // Обновляем раз в 5 минут
+            // Эти данные редко меняются, обновляем раз в 5 минут
+            thread::sleep(Duration::from_secs(300));
         }
     });
     
-    // Поток для обновления данных памяти (среднее обновление)
+    // Поток для обновления данных памяти (частое обновление)
     let memory_cache = cache.memory.clone();
     let memory_app_handle = app_handle.clone();
     thread::spawn(move || {
@@ -244,16 +244,16 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
             let _ = memory_app_handle.emit("memory-info-updated", memory_data);
             
             update_count += 1;
-            if update_count % 10 == 0 {
+            if update_count % 100 == 0 {
                 println!("[SystemInfo] Данные памяти обновлены {} раз", update_count);
             }
             
-            // Пауза перед следующим обновлением
-            thread::sleep(Duration::from_millis(250)); // Обновляем каждые 250 мс
+            // Память обновляем раз в 500мс (2 обновления в секунду)
+            thread::sleep(Duration::from_millis(500));
         }
     });
     
-    // Поток для обновления данных дисков (редкое обновление)
+    // Поток для обновления данных дисков (частое обновление)
     let disks_cache = cache.disk.clone();
     let disks_app_handle = app_handle.clone();
     thread::spawn(move || {
@@ -267,12 +267,12 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
             let _ = disks_app_handle.emit("disks-info-updated", disks_data);
             
             update_count += 1;
-            if update_count % 5 == 0 {
+            if update_count % 100 == 0 {
                 println!("[SystemInfo] Данные дисков обновлены {} раз", update_count);
             }
             
-            // Пауза перед следующим обновлением
-            thread::sleep(Duration::from_secs(1)); // Обновляем раз в секунду
+            // Диски обновляем раз в секунду, частые обновления не нужны
+            thread::sleep(Duration::from_secs(1));
         }
     });
     
@@ -294,12 +294,12 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
             let _ = app_handle.emit("system-info-updated", system_info);
             
             update_count += 1;
-            if update_count % 10 == 0 {
+            if update_count % 100 == 0 {
                 println!("[SystemInfo] Полная системная информация обновлена {} раз", update_count);
             }
             
-            // Пауза перед следующим обновлением
-            thread::sleep(Duration::from_millis(250)); // Обновляем каждые 250 мс
+            // UI обновляем раз в 200мс (5 обновлений в секунду)
+            thread::sleep(Duration::from_millis(200));
         }
     });
 }
@@ -317,35 +317,58 @@ pub fn get_system_info(cache: tauri::State<'_, Arc<SystemInfoCache>>) -> SystemI
 
 // Функция для обновления динамических данных CPU
 fn update_cpu_dynamic_data(cache: &CpuCache) {
-    // Запускаем потоки для параллельного получения разных метрик
-    let usage_thread = thread::spawn(|| get_cpu_usage());
-    let frequency_thread = thread::spawn(|| get_current_cpu_frequency());
-    let temp_thread = thread::spawn(|| get_cpu_temperature());
-    
-    // Получаем результаты из потоков
-    let usage = usage_thread.join().unwrap_or_else(|_| {
-        println!("[ERROR] Не удалось получить данные о нагрузке CPU");
-        0.0
-    });
-    
-    let frequency = frequency_thread.join().unwrap_or_else(|_| {
-        println!("[ERROR] Не удалось получить данные о частоте CPU");
-        0.0
-    });
-    
-    let temp = match temp_thread.join() {
-        Ok(temp_data) => temp_data,
-        Err(_) => {
-            println!("[ERROR] Не удалось получить данные о температуре CPU");
-            None
+    // Проверяем время последнего обновления - не чаще чем раз в 50 мс
+    {
+        let last_update = cache.last_update.read().unwrap();
+        if last_update.elapsed() < Duration::from_millis(50) {
+            return;
         }
+    }
+
+    // Получаем данные о ЦП, делаем это в одном потоке, чтобы уменьшить нагрузку
+    let mut sys = System::new_all();
+    sys.refresh_cpu();
+    
+    // Вычисляем среднюю нагрузку ЦП
+    let cpu_count = sys.cpus().len() as f32;
+    let total_usage = if cpu_count > 0.0 {
+        sys.cpus().iter().map(|p| p.cpu_usage()).sum::<f32>() / cpu_count
+    } else {
+        0.0
     };
+    
+    // Получаем текущую частоту процессора
+    let mut frequency = 0.0;
+    if let Some(cpu) = sys.cpus().first() {
+        frequency = cpu.frequency() as f64 / 1000.0;
+    }
+    
+    // Получаем температуру процессора (редко и только если было последнее обновление давно)
+    let temp;
+    {
+        let last_update = cache.last_update.read().unwrap();
+        if last_update.elapsed() > Duration::from_secs(5) {
+            temp = get_cpu_temperature();
+        } else {
+            // Используем закэшированное значение
+            let data = cache.data.read().unwrap();
+            temp = data.temperature;
+        }
+    }
     
     // Обновляем данные в кэше
     let mut data = cache.data.write().unwrap();
-    data.usage = usage;
-    data.frequency = frequency;
-    data.temperature = temp;
+    data.usage = total_usage;
+    
+    // Только обновляем частоту, если получили валидное значение
+    if frequency > 0.1 {
+        data.frequency = frequency;
+    }
+    
+    // Обновляем температуру только если она изменилась
+    if temp.is_some() {
+        data.temperature = temp;
+    }
     
     // Обновляем время последнего обновления
     let mut last_update = cache.last_update.write().unwrap();
@@ -430,42 +453,57 @@ fn update_cpu_static_data(cache: &CpuCache) {
     *last_update = Instant::now();
 }
 
-// Функция для обновления данных о памяти
+// Функция для обновления данных о памяти - оптимизированная версия
 fn update_memory_data(cache: &MemoryCache) {
-    let memory_thread = thread::spawn(|| {
-        // Получаем данные о памяти с помощью системной библиотеки sysinfo
-        let mut sys = System::new_all();
-        sys.refresh_memory();
-        
-        let total = sys.total_memory() / 1024 / 1024; // Преобразуем в МБ
-        let used = (sys.total_memory() - sys.available_memory()) / 1024 / 1024; // Преобразуем в МБ
-        let usage_percent = (used as f64 / total as f64) * 100.0;
-        
-        MemoryData {
-            total,
-            used,
-            usage_percent,
-        }
-    });
-    
-    match memory_thread.join() {
-        Ok(memory_data) => {
-            // Обновляем данные в кэше
-            let mut data = cache.data.write().unwrap();
-            *data = memory_data.into();
-            
-            // Обновляем время последнего обновления
-            let mut last_update = cache.last_update.write().unwrap();
-            *last_update = Instant::now();
-        },
-        Err(_) => {
-            println!("[ERROR] Не удалось получить данные о памяти");
+    // Проверяем время последнего обновления - не чаще чем раз в 100 мс
+    {
+        let last_update = cache.last_update.read().unwrap();
+        if last_update.elapsed() < Duration::from_millis(100) {
+            return;
         }
     }
+
+    // Получаем данные о памяти напрямую из System для снижения накладных расходов
+    let mut sys = System::new_all();
+    sys.refresh_memory();
+    
+    // Конвертируем в нужные единицы
+    let total = sys.total_memory();
+    let used = sys.used_memory();
+    let free = sys.free_memory();
+    let available = sys.available_memory();
+    
+    // Вычисляем процент использования
+    let usage_percent = if total > 0 {
+        (used as f32 / total as f32) * 100.0
+    } else {
+        0.0
+    };
+    
+    // Обновляем данные в кэше
+    let mut data = cache.data.write().unwrap();
+    data.total_memory = total;
+    data.used_memory = used;
+    data.free_memory = free;
+    data.available_memory = available;
+    data.usage_percent = usage_percent;
+    
+    // Обновляем время последнего обновления
+    let mut last_update = cache.last_update.write().unwrap();
+    *last_update = Instant::now();
 }
 
-// Функция для обновления данных о дисках
+// Функция для обновления данных о дисках - оптимизированная версия
 fn update_disk_data(cache: &DiskCache) {
+    // Проверяем время последнего обновления - не чаще чем раз в 500 мс
+    {
+        let last_update = cache.last_update.read().unwrap();
+        if last_update.elapsed() < Duration::from_millis(500) {
+            return;
+        }
+    }
+
+    // Получаем данные о дисках
     let disks = Disks::new();
     let mut disks_info = Vec::new();
     
@@ -493,13 +531,32 @@ fn update_disk_data(cache: &DiskCache) {
         });
     }
     
-    // Обновляем данные в кэше
-    let mut data = cache.data.write().unwrap();
-    *data = disks_info;
+    // Обновляем данные в кэше только если они изменились
+    let mut need_update = true;
+    {
+        let current_disks = cache.data.read().unwrap();
+        if current_disks.len() == disks_info.len() {
+            // Проверяем, изменились ли данные существенно
+            need_update = false;
+            for (i, disk) in current_disks.iter().enumerate() {
+                if (disk.usage_percent - disks_info[i].usage_percent).abs() > 0.5 ||
+                   disk.available_space != disks_info[i].available_space {
+                    need_update = true;
+                    break;
+                }
+            }
+        }
+    }
     
-    // Обновляем время последнего обновления
-    let mut last_update = cache.last_update.write().unwrap();
-    *last_update = Instant::now();
+    if need_update {
+        // Обновляем данные в кэше
+        let mut data = cache.data.write().unwrap();
+        *data = disks_info;
+        
+        // Обновляем время последнего обновления
+        let mut last_update = cache.last_update.write().unwrap();
+        *last_update = Instant::now();
+    }
 }
 
 // ------ Утилиты для получения данных ------
@@ -775,80 +832,21 @@ fn get_cpu_details() -> HashMap<String, String> {
     HashMap::new()
 }
 
-// Функция для получения температуры процессора более надежным способом
+// Функция для получения температуры процессора - упрощенная версия для экономии ресурсов
 fn get_cpu_temperature() -> Option<f32> {
-    // Попробуем сначала через sysinfo Components
+    // Ограничиваем количество способов получения температуры
+    
+    // Сначала пробуем через sysinfo, это самый быстрый способ
     let components = Components::new();
     for component in components.iter() {
-        // Расширенный набор меток для определения температуры процессора
         let label = component.label().to_lowercase();
-        if label.contains("cpu") || 
-           label.contains("core") || 
-           label.contains("package") || 
-           label.contains("tctl") ||
-           label.contains("processor") {
-            println!("[DEBUG] Найден датчик температуры: {} = {} °C", 
-                     component.label(), component.temperature());
+        if label.contains("cpu") || label.contains("core") || label.contains("package") {
             return Some(component.temperature());
         }
     }
     
-    // Если не нашли через sysinfo, пробуем альтернативные методы
-    #[cfg(target_os = "windows")]
-    {
-        // Для Windows пробуем через wmic
-        if let Ok(output) = Command::new("wmic")
-            .args(["/namespace:\\\\root\\wmi", "PATH", "MSAcpi_ThermalZoneTemperature", "GET", "CurrentTemperature", "/format:list"])
-            .output() 
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                for line in output_str.lines() {
-                    if line.contains("CurrentTemperature") {
-                        if let Some(sep_pos) = line.find('=') {
-                            if let Ok(temp_val) = line[sep_pos + 1..].trim().parse::<f32>() {
-                                // Конвертируем из десяток Кельвина в Цельсии
-                                let celsius = (temp_val / 10.0) - 273.15;
-                                println!("[DEBUG] Температура через wmic: {} °C", celsius);
-                                return Some(celsius);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    #[cfg(target_os = "linux")]
-    {
-        // Для Linux пробуем через /sys/class/thermal
-        if let Ok(entries) = std::fs::read_dir("/sys/class/thermal") {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.to_string_lossy().contains("thermal_zone") {
-                    let type_path = path.join("type");
-                    let temp_path = path.join("temp");
-                    
-                    if let (Ok(type_data), Ok(temp_data)) = (
-                        std::fs::read_to_string(&type_path), 
-                        std::fs::read_to_string(&temp_path)
-                    ) {
-                        if type_data.trim().contains("x86_pkg_temp") || 
-                           type_data.trim().contains("cpu") {
-                            if let Ok(temp_val) = temp_data.trim().parse::<f32>() {
-                                // Конвертируем из миллиградусов в градусы
-                                let celsius = temp_val / 1000.0;
-                                println!("[DEBUG] Температура через /sys/class/thermal: {} °C", celsius);
-                                return Some(celsius);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // Не удалось получить температуру
-    println!("[DEBUG] Не удалось получить температуру ЦП");
+    // Если не удалось получить через sysinfo, возвращаем None
+    // Более сложные методы убраны для экономии ресурсов
     None
 }
 
@@ -865,8 +863,8 @@ fn get_cpu_usage() -> f32 {
                 $initialIdleTime = (Get-Counter '\\Processor(_Total)\\% Idle Time').CounterSamples.CookedValue
                 $initialProcTime = 100.0
                 
-                # Ждем для измерения дельты
-                Start-Sleep -Milliseconds 500
+                # Ждем для измерения дельты (минимальная задержка)
+                Start-Sleep -Milliseconds 10
                 
                 # Получаем новые значения
                 $currentIdleTime = (Get-Counter '\\Processor(_Total)\\% Idle Time').CounterSamples.CookedValue
@@ -898,8 +896,8 @@ fn get_cpu_usage() -> f32 {
                 # Получаем начальные значения счетчиков
                 $startProc = (Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples.CookedValue
                 
-                # Ждем для измерения дельты
-                Start-Sleep -Milliseconds 500
+                # Ждем для измерения дельты (минимальная задержка)
+                Start-Sleep -Milliseconds 10
                 
                 # Получаем итоговые значения
                 $endProc = (Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples.CookedValue
@@ -934,8 +932,8 @@ fn get_cpu_usage() -> f32 {
                 # Делаем первый замер
                 $firstSample = $pdh.NextValue()
                 
-                # Ждем для расчета дельты
-                Start-Sleep -Milliseconds 500
+                # Ждем для расчета дельты (минимальная задержка)
+                Start-Sleep -Milliseconds 10
                 
                 # Делаем второй замер
                 $secondSample = $pdh.NextValue()
@@ -976,7 +974,7 @@ fn get_cpu_usage() -> f32 {
             return total_usage;
         });
         
-        // Ждем результат с таймаутом
+        // Ждем результат с минимальным таймаутом
         match guard.join() {
             Ok(usage) => return usage,
             Err(_) => {
@@ -999,8 +997,8 @@ fn get_cpu_usage() -> f32 {
                     total_start=$((user + nice + system + idle + iowait + irq + softirq + steal))
                     idle_start=$((idle + iowait))
                     
-                    # Ждем для расчета дельты
-                    sleep 0.5
+                    # Ждем для расчета дельты (минимальная задержка)
+                    sleep 0.01
                     
                     # Получаем второй замер
                     read user nice system idle iowait irq softirq steal guest guest_nice < /proc/stat
@@ -1031,7 +1029,7 @@ fn get_cpu_usage() -> f32 {
             
             // Запасной вариант через mpstat
             if let Ok(output) = Command::new("sh")
-                .args(["-c", "mpstat 0.5 2 | tail -1 | awk '{print 100-$12}'"])
+                .args(["-c", "mpstat 0.01 2 | tail -1 | awk '{print 100-$12}'"])
                 .output() 
             {
                 if let Ok(output_str) = String::from_utf8(output.stdout) {
@@ -1076,77 +1074,176 @@ fn get_cpu_usage() -> f32 {
 fn get_current_cpu_frequency() -> f64 {
     #[cfg(target_os = "windows")]
     {
-        // Получаем текущую частоту через WMI
-        if let Ok(output) = Command::new("powershell")
-            .args(["-Command", "Get-Counter -Counter '\\Processor Information(_Total)\\Processor Frequency' -SampleInterval 1 -MaxSamples 1 | Select-Object -ExpandProperty CounterSamples | Select-Object -ExpandProperty CookedValue"])
-            .output() 
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                if let Ok(freq) = output_str.trim().parse::<f64>() {
-                    println!("[DEBUG] Текущая частота ЦП: {} ГГц", freq);
-                    return freq;
-                }
-            }
-        }
-        
-        // Запасной вариант через typeperf
-        if let Ok(output) = Command::new("cmd")
-            .args(["/c", "typeperf -sc 1 \"\\Processor Information(_Total)\\Processor Frequency\""])
-            .output() 
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                let lines: Vec<&str> = output_str.lines().collect();
-                if lines.len() >= 2 {
-                    let data_line = lines[1];
-                    let parts: Vec<&str> = data_line.split(',').collect();
-                    if parts.len() >= 2 {
-                        if let Some(freq) = parts[1].trim_matches('"').trim().parse::<f64>().ok() {
-                            println!("[DEBUG] Текущая частота ЦП через typeperf: {} ГГц", freq);
+        // Улучшенный метод для Windows - через WMI с более надежным запросом
+        let guard = std::thread::spawn(|| {
+            // Метод 1: PowerShell и WMI
+            if let Ok(output) = Command::new("powershell")
+                .args(["-Command", "(Get-WmiObject -Class Win32_Processor).CurrentClockSpeed / 1000.0"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(freq) = output_str.trim().parse::<f64>() {
+                        if freq > 0.1 {  // Проверяем, что получено разумное значение
+                            println!("[DEBUG] Метод 1: Текущая частота ЦП через WMI: {} ГГц", freq);
                             return freq;
                         }
                     }
                 }
             }
-        }
-        
-        // Если не получилось через WMI, используем другой метод для Windows
-        if let Ok(output) = Command::new("powershell")
-            .args(["-Command", "(Get-CimInstance -ClassName Win32_Processor).CurrentClockSpeed / 1000"])
-            .output() 
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                if let Ok(freq) = output_str.trim().parse::<f64>() {
-                    println!("[DEBUG] Текущая частота ЦП через CIM: {} ГГц", freq);
-                    return freq;
+            
+            // Метод 2: используем другой PowerShell-запрос для текущей частоты
+            if let Ok(output) = Command::new("powershell")
+                .args(["-Command", "Get-Counter -Counter '\\Processor Information(_Total)\\Processor Frequency' | Select-Object -ExpandProperty CounterSamples | Select-Object -ExpandProperty CookedValue"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(freq) = output_str.trim().parse::<f64>() {
+                        if freq > 0.1 {  // Валидное значение
+                            println!("[DEBUG] Метод 2: Текущая частота ЦП через CounterSamples: {} ГГц", freq);
+                            return freq / 1000.0; // может вернуться в МГц
+                        }
+                    }
                 }
+            }
+            
+            // Метод 3: Прямой запрос к реестру для максимальной совместимости
+            if let Ok(output) = Command::new("powershell")
+                .args(["-Command", 
+                    "try { $currSpeed = Get-ItemProperty 'HKLM:\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0' | Select-Object -ExpandProperty ~MHz; $currSpeed / 1000.0 } catch { $null }"
+                ])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(freq) = output_str.trim().parse::<f64>() {
+                        if freq > 0.1 {  // Валидное значение
+                            println!("[DEBUG] Метод 3: Текущая частота ЦП через реестр: {} ГГц", freq);
+                            return freq;
+                        }
+                    }
+                }
+            }
+            
+            // Метод 4: используем WMIC как более стабильный вариант
+            if let Ok(output) = Command::new("wmic")
+                .args(["cpu", "get", "CurrentClockSpeed"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    let lines: Vec<&str> = output_str.lines().collect();
+                    if lines.len() >= 2 {
+                        if let Ok(freq) = lines[1].trim().parse::<f64>() {
+                            println!("[DEBUG] Метод 4: Текущая частота ЦП через WMIC: {} ГГц", freq / 1000.0);
+                            return freq / 1000.0; // WMIC возвращает в МГц
+                        }
+                    }
+                }
+            }
+            
+            // Резервный метод: возвращаем максимальную частоту как приближение
+            println!("[DEBUG] Не удалось получить текущую частоту, возвращаем базовую частоту");
+            get_base_cpu_frequency()
+        });
+        
+        // Ждем результат с таймаутом
+        match guard.join() {
+            Ok(freq) => freq,
+            Err(_) => {
+                println!("[ERROR] Таймаут получения данных о частоте ЦП");
+                // Возвращаем данные из sysinfo, если ничего другого не сработало
+                let mut sys = System::new_all();
+                sys.refresh_cpu();
+                let freq = sys.cpus().first().map_or(0.0, |f| f.frequency() as f64 / 1000.0);
+                println!("[DEBUG] Резервный метод: Текущая частота ЦП через sysinfo: {} ГГц", freq);
+                freq
             }
         }
     }
     
     #[cfg(target_os = "linux")]
     {
-        // На Linux читаем текущую частоту из /proc/cpuinfo
-        if let Ok(output) = Command::new("sh")
-            .args(["-c", "cat /proc/cpuinfo | grep 'MHz' | head -1 | awk '{print $4}'"])
-            .output() 
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                if let Ok(freq) = output_str.trim().parse::<f64>() {
-                    // Конвертируем из МГц в ГГц
-                    let freq_ghz = freq / 1000.0;
-                    println!("[DEBUG] Текущая частота ЦП: {} ГГц", freq_ghz);
-                    return freq_ghz;
+        // Улучшенный метод для Linux с большим количеством альтернатив
+        let guard = std::thread::spawn(|| {
+            // Метод 1: Более надежное чтение из scaling_cur_freq
+            if let Ok(output) = Command::new("sh")
+                .args(["-c", "cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null | head -1"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if !output_str.trim().is_empty() {
+                        if let Ok(freq) = output_str.trim().parse::<f64>() {
+                            let freq_ghz = freq / 1000000.0; // Конвертируем из Гц в ГГц
+                            println!("[DEBUG] Метод 1: Текущая частота ЦП: {} ГГц", freq_ghz);
+                            return freq_ghz;
+                        }
+                    }
+                }
+            }
+            
+            // Метод 2: Чтение через cpuinfo
+            if let Ok(output) = Command::new("sh")
+                .args(["-c", "grep -i 'cpu MHz' /proc/cpuinfo | head -1 | awk '{print $4}'"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if !output_str.trim().is_empty() {
+                        if let Ok(freq) = output_str.trim().parse::<f64>() {
+                            // Конвертируем из МГц в ГГц
+                            let freq_ghz = freq / 1000.0;
+                            println!("[DEBUG] Метод 2: Текущая частота ЦП: {} ГГц", freq_ghz);
+                            return freq_ghz;
+                        }
+                    }
+                }
+            }
+            
+            // Метод 3: Использование lscpu
+            if let Ok(output) = Command::new("sh")
+                .args(["-c", "lscpu | grep -i 'CPU MHz' | awk '{print $3}'"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if !output_str.trim().is_empty() {
+                        if let Ok(freq) = output_str.trim().parse::<f64>() {
+                            // Конвертируем из МГц в ГГц
+                            let freq_ghz = freq / 1000.0;
+                            println!("[DEBUG] Метод 3: Текущая частота ЦП через lscpu: {} ГГц", freq_ghz);
+                            return freq_ghz;
+                        }
+                    }
+                }
+            }
+            
+            // Резервный метод: возвращаем максимальную частоту как приближение
+            println!("[DEBUG] Не удалось получить текущую частоту, возвращаем базовую частоту");
+            get_base_cpu_frequency()
+        });
+        
+        match guard.join() {
+            Ok(freq) => freq,
+            Err(_) => {
+                println!("[ERROR] Таймаут получения данных о частоте ЦП");
+                let mut sys = System::new_all();
+                sys.refresh_cpu();
+                if let Some(cpu) = sys.cpus().first() {
+                    let freq = cpu.frequency() as f64 / 1000.0;
+                    println!("[DEBUG] Резервный метод: Текущая частота ЦП через sysinfo: {} ГГц", freq);
+                    freq
+                } else {
+                    0.0
                 }
             }
         }
     }
     
-    // Возвращаем данные из sysinfo, если ничего другого не сработало
-    let mut sys = System::new_all();
-    sys.refresh_cpu();
-    let freq = sys.cpus().first().map_or(0.0, |f| f.frequency() as f64 / 1000.0);
-    println!("[DEBUG] Текущая частота ЦП через sysinfo: {} ГГц", freq);
-    freq
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        // Резервный метод для других ОС
+        let mut sys = System::new_all();
+        sys.refresh_cpu();
+        let freq = sys.cpus().first().map_or(0.0, |f| f.frequency() as f64 / 1000.0);
+        println!("[DEBUG] Текущая частота ЦП через sysinfo: {} ГГц", freq);
+        freq
+    }
 }
 
 // Функция для получения базовой частоты процессора (в ГГц)
