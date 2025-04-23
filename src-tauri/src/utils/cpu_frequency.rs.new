@@ -1,0 +1,626 @@
+// Модуль для определения текущей и базовой частоты процессора
+// Поддерживает различные операционные системы и использует несколько методов для получения точных данных
+
+use std::process::Command;
+use std::sync::Mutex;
+use lazy_static::lazy_static;
+use sysinfo::System;
+use std::time::Instant;
+use sysinfo::SystemExt;
+use sysinfo::CpuExt;
+
+// Добавляем библиотеку для доступа к CPUID
+use raw_cpuid::CpuId;
+
+// WinAPI для доступа к счетчикам производительности Windows
+#[cfg(target_os = "windows")]
+use winapi::um::pdh::{PdhOpenQueryA, PdhAddCounterA, PdhCollectQueryData, PdhGetFormattedCounterValue, PDH_FMT_DOUBLE, PDH_FMT_COUNTERVALUE};
+#[cfg(target_os = "windows")]
+use winapi::shared::winerror::PDH_CSTATUS_VALID_DATA;
+#[cfg(target_os = "windows")]
+use std::ffi::CString;
+#[cfg(target_os = "windows")]
+use std::ptr::null;
+
+// Безопасные обертки для PDH типов, чтобы их можно было отправлять между потоками
+#[cfg(target_os = "windows")]
+struct SafeQueryHandle(*mut std::ffi::c_void);
+#[cfg(target_os = "windows")]
+struct SafeCounterHandle(*mut std::ffi::c_void);
+
+// Реализуем Send и Sync для наших безопасных оберток
+#[cfg(target_os = "windows")]
+unsafe impl Send for SafeQueryHandle {}
+#[cfg(target_os = "windows")]
+unsafe impl Sync for SafeQueryHandle {}
+#[cfg(target_os = "windows")]
+unsafe impl Send for SafeCounterHandle {}
+#[cfg(target_os = "windows")]
+unsafe impl Sync for SafeCounterHandle {}
+
+lazy_static! {
+    // Кэшируем значение базовой частоты, так как оно редко меняется
+    static ref CPU_BASE_FREQUENCY: Mutex<f64> = Mutex::new(0.0);
+    // Кэшируем значение максимальной частоты процессора
+    static ref CPU_MAX_FREQUENCY: Mutex<f64> = Mutex::new(0.0);
+    // Сохраняем последнее значение инструкций для расчета
+    static ref LAST_INSTRUCTIONS: Mutex<u64> = Mutex::new(0);
+    // Сохраняем последнее время замера для расчета
+    static ref LAST_MEASURE_TIME: Mutex<Instant> = Mutex::new(Instant::now());
+    // Сохраняем последнюю рассчитанную частоту
+    static ref LAST_FREQUENCY: Mutex<f64> = Mutex::new(0.0);
+    
+    // Хранение Handle для Windows PDH
+    #[cfg(target_os = "windows")]
+    static ref PDH_QUERY_HANDLE: Mutex<Option<SafeQueryHandle>> = Mutex::new(None);
+    #[cfg(target_os = "windows")]
+    static ref PDH_COUNTER_HANDLE: Mutex<Option<SafeCounterHandle>> = Mutex::new(None);
+    #[cfg(target_os = "windows")]
+    static ref PDH_INITIALIZED: Mutex<bool> = Mutex::new(false);
+    static ref CURRENT_FREQUENCY: Mutex<f64> = Mutex::new(0.0);
+    static ref SYSTEM: Mutex<System> = Mutex::new(System::new_all());
+}
+
+/// Получает текущую частоту процессора
+pub fn get_current_cpu_frequency() -> f64 {
+    // Получаем актуальную частоту с датчиков
+    let current_freq = read_real_cpu_frequency();
+    
+    // Если частота успешно прочитана с датчиков - используем её
+    if current_freq > 0.0 {
+        *CURRENT_FREQUENCY.lock().unwrap() = current_freq;
+    } else {
+        // Иначе используем последнюю известную частоту или вычисляем
+        let mut frequency = *CURRENT_FREQUENCY.lock().unwrap();
+        if frequency <= 0.0 {
+            // Если нет данных, вычисляем на основе базовой частоты и нагрузки
+            let base_freq = get_cpu_base_frequency();
+            let max_freq = get_cpu_max_frequency();
+            let usage = get_cpu_usage();
+            
+            // Нелинейная формула для расчета на основе нагрузки
+            frequency = base_freq + (max_freq - base_freq) * (usage / 100.0).powf(0.7);
+            *CURRENT_FREQUENCY.lock().unwrap() = frequency;
+        }
+    }
+    
+    // Для отладки выводим все параметры
+    let frequency = *CURRENT_FREQUENCY.lock().unwrap();
+    let base_freq = get_cpu_base_frequency();
+    let max_freq = get_cpu_max_frequency();
+    let cpu_usage = get_cpu_usage();
+    
+    println!(
+        "Частота CPU (реальная): {:.12} ГГц, Нагрузка: {:.5}%, База: {:.0} ГГц, Макс: {:.1} ГГц",
+        frequency, cpu_usage, base_freq, max_freq
+    );
+    
+    frequency
+}
+
+/// Получает базовую частоту процессора
+/// Экспортируется для использования в других модулях
+pub fn get_cpu_base_frequency() -> f64 {
+    // Пытаемся использовать кэшированное значение
+    let cached_freq = *CPU_BASE_FREQUENCY.lock().unwrap();
+    if cached_freq > 0.0 {
+        return cached_freq;
+    }
+    
+    // Если нет кэшированного значения, определяем его
+    let base_freq = determine_base_frequency();
+    *CPU_BASE_FREQUENCY.lock().unwrap() = base_freq;
+    
+    base_freq
+}
+
+/// Определяет базовую частоту процессора
+fn determine_base_frequency() -> f64 {
+    #[cfg(target_os = "windows")]
+    {
+        // Попытка получить через WMI
+        match get_base_frequency_windows_wmi() {
+            Ok(freq) if freq > 0.0 => return freq,
+            _ => {}
+        }
+        
+        // Попытка получить через CPUID
+        match get_base_frequency_cpuid() {
+            Some(freq) if freq > 0.0 => return freq,
+            _ => {}
+        }
+        
+        // Значение по умолчанию - примерное для современных процессоров
+        2.0
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        // Пытаемся прочитать из /proc/cpuinfo
+        match get_base_frequency_from_proc_cpuinfo() {
+            Some(freq) if freq > 0.0 => return freq,
+            _ => {}
+        }
+        
+        // Пытаемся прочитать из /sys/devices
+        match get_base_frequency_from_sys() {
+            Some(freq) if freq > 0.0 => return freq,
+            _ => {}
+        }
+        
+        // Значение по умолчанию
+        2.0
+    }
+    
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        2.0 // Значение по умолчанию для других ОС
+    }
+}
+
+/// Получает максимальную частоту процессора
+fn get_cpu_max_frequency() -> f64 {
+    // Пытаемся использовать кэшированное значение
+    let cached_freq = *CPU_MAX_FREQUENCY.lock().unwrap();
+    if cached_freq > 0.0 {
+        return cached_freq;
+    }
+    
+    // Если нет кэшированного значения, определяем его
+    let max_freq = determine_max_frequency();
+    *CPU_MAX_FREQUENCY.lock().unwrap() = max_freq;
+    
+    max_freq
+}
+
+/// Определяет максимальную частоту процессора
+fn determine_max_frequency() -> f64 {
+    #[cfg(target_os = "windows")]
+    {
+        // Попытка получить через WMI
+        match get_max_frequency_windows_wmi() {
+            Ok(freq) if freq > 0.0 => return freq,
+            _ => {}
+        }
+        
+        // Получение базовой частоты
+        let base_freq = get_cpu_base_frequency();
+        
+        // Оценка максимальной частоты (Turbo Boost обычно даёт около +30%)
+        base_freq * 1.3
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        // Пытаемся прочитать из /sys/devices
+        match get_max_frequency_from_sys() {
+            Some(freq) if freq > 0.0 => return freq,
+            _ => {}
+        }
+        
+        // Оценка максимальной частоты
+        get_cpu_base_frequency() * 1.3
+    }
+    
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        get_cpu_base_frequency() * 1.3 // Для других ОС
+    }
+}
+
+/// Получает текущую нагрузку процессора
+fn get_cpu_usage() -> f64 {
+    let mut system = SYSTEM.lock().unwrap();
+    system.refresh_cpu();
+    
+    // Получаем среднюю нагрузку по всем ядрам
+    let usage = system.cpus().iter().map(|cpu| cpu.cpu_usage() as f64).sum::<f64>() / 
+                system.cpus().len() as f64;
+    
+    usage
+}
+
+/// Считывает текущую частоту процессора с аппаратных датчиков
+fn read_real_cpu_frequency() -> f64 {
+    #[cfg(target_os = "windows")]
+    {
+        // Пробуем через Windows PDH API (наиболее точный)
+        match get_current_frequency_windows_pdh() {
+            Ok(freq) if freq > 0.0 => return freq,
+            _ => {}
+        }
+        
+        // Пробуем через WMI (запасной вариант)
+        match get_current_frequency_windows_wmi() {
+            Ok(freq) if freq > 0.0 => return freq,
+            _ => {}
+        }
+        
+        // Возвращаем 0, чтобы вызвать расчет на основе нагрузки
+        0.0
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        // Пробуем считать из /proc/cpuinfo (текущая частота)
+        match get_current_frequency_from_proc() {
+            Some(freq) if freq > 0.0 => return freq,
+            _ => {}
+        }
+        
+        // Пробуем считать из /sys/devices
+        match get_current_frequency_from_sys() {
+            Some(freq) if freq > 0.0 => return freq,
+            _ => {}
+        }
+        
+        // Возвращаем 0, чтобы вызвать расчет на основе нагрузки
+        0.0
+    }
+    
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        // Для других ОС просто возвращаем 0, чтобы вызвать расчет
+        0.0
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_base_frequency_windows_wmi() -> Result<f64, String> {
+    use std::process::Command;
+    
+    // Используем WMI через powershell
+    let output = Command::new("powershell")
+        .args(&[
+            "-Command",
+            "Get-WmiObject -Class Win32_Processor | Select-Object -ExpandProperty MaxClockSpeed"
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if result.is_empty() {
+            return Err("Пустой результат от WMI".to_string());
+        }
+        
+        match result.parse::<f64>() {
+            Ok(mhz) => Ok(mhz / 1000.0), // Конвертируем МГц в ГГц
+            Err(_) => Err("Не удалось преобразовать результат в число".to_string())
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(format!("Ошибка выполнения команды WMI: {}", stderr))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_max_frequency_windows_wmi() -> Result<f64, String> {
+    // В Windows не всегда есть прямое API для максимальной частоты
+    // Оценим её на основе номинальной частоты и модели процессора
+    
+    use std::process::Command;
+    
+    // Получаем модель процессора через WMI
+    let output = Command::new("powershell")
+        .args(&[
+            "-Command",
+            "Get-WmiObject -Class Win32_Processor | Select-Object -ExpandProperty Name"
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    
+    if !output.status.success() {
+        return Err("Ошибка выполнения команды WMI".to_string());
+    }
+    
+    let cpu_name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if cpu_name.is_empty() {
+        return Err("Пустое имя процессора".to_string());
+    }
+    
+    let base_freq = get_cpu_base_frequency();
+    
+    // Оцениваем максимальную частоту на основе модели CPU
+    // Intel обычно имеет Turbo Boost около 20-30% выше базовой
+    // AMD обычно имеет Boost около 15-25% выше базовой
+    if cpu_name.contains("Intel") {
+        if cpu_name.contains("i9") {
+            Ok(base_freq * 1.35) // i9 имеют хороший Turbo Boost
+        } else if cpu_name.contains("i7") {
+            Ok(base_freq * 1.3)
+        } else if cpu_name.contains("i5") {
+            Ok(base_freq * 1.25)
+        } else if cpu_name.contains("i3") {
+            Ok(base_freq * 1.2)
+        } else {
+            Ok(base_freq * 1.15)
+        }
+    } else if cpu_name.contains("AMD") || cpu_name.contains("Ryzen") {
+        if cpu_name.contains("Ryzen 9") || cpu_name.contains("Threadripper") {
+            Ok(base_freq * 1.3)
+        } else if cpu_name.contains("Ryzen 7") {
+            Ok(base_freq * 1.25)
+        } else if cpu_name.contains("Ryzen 5") {
+            Ok(base_freq * 1.2)
+        } else if cpu_name.contains("Ryzen 3") {
+            Ok(base_freq * 1.15)
+        } else {
+            Ok(base_freq * 1.1)
+        }
+    } else {
+        // Для неопознанных процессоров используем стандартный множитель
+        Ok(base_freq * 1.2)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_current_frequency_windows_pdh() -> Result<f64, String> {
+    // Для получения текущей частоты используем PDH API Windows
+    // Рекомендуемый метод для Windows 10 и новее
+    use std::ffi::CString;
+    use std::ptr::{null, null_mut};
+    use winapi::um::pdh::{PDH_FMT_DOUBLE, PdhOpenQueryA, PdhCloseQuery, PdhCollectQueryData, 
+                       PdhAddCounterA, PdhGetFormattedCounterValue};
+    use winapi::shared::minwindef::DWORD;
+    
+    // Инициализируем PDH
+    let query_path = CString::new("\\Processor Information(_Total)\\% Processor Performance").unwrap();
+    let mut query_handle = null_mut();
+    let mut counter_handle = null_mut();
+    
+    unsafe {
+        // Открываем запрос
+        let status = PdhOpenQueryA(null(), 0, &mut query_handle);
+        if status != 0 {
+            return Err(format!("Ошибка при открытии PDH запроса: {}", status));
+        }
+        
+        // Создаем счетчик
+        let status = PdhAddCounterA(query_handle, query_path.as_ptr(), 0, &mut counter_handle);
+        if status != 0 {
+            PdhCloseQuery(query_handle);
+            return Err(format!("Ошибка при добавлении счетчика: {}", status));
+        }
+        
+        // Собираем данные
+        let status = PdhCollectQueryData(query_handle);
+        if status != 0 {
+            PdhCloseQuery(query_handle);
+            return Err(format!("Ошибка при сборе данных: {}", status));
+        }
+        
+        // Ждем немного, чтобы получить более точные данные
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        
+        // Собираем данные еще раз
+        let status = PdhCollectQueryData(query_handle);
+        if status != 0 {
+            PdhCloseQuery(query_handle);
+            return Err(format!("Ошибка при повторном сборе данных: {}", status));
+        }
+        
+        // Получаем значение
+        let mut counter_type: DWORD = 0;
+        let mut counter_value: PDH_FMT_COUNTERVALUE = std::mem::zeroed();
+        
+        let status = PdhGetFormattedCounterValue(
+            counter_handle,
+            PDH_FMT_DOUBLE,
+            &mut counter_type,
+            &mut counter_value
+        );
+        
+        // Закрываем запрос после получения данных
+        PdhCloseQuery(query_handle);
+        
+        if status != PDH_CSTATUS_VALID_DATA {
+            return Err(format!("Ошибка при получении значения счетчика: {}", status));
+        }
+        
+        // Получаем значение производительности (в процентах)
+        let performance_percent = counter_value.u.doubleValue();
+        
+        // Получаем базовую частоту
+        let base_freq = get_cpu_base_frequency();
+        
+        // Вычисляем текущую частоту на основе процента производительности
+        // Если процентное значение равно 100, то процессор работает на своей базовой частоте
+        // Если больше 100, то с включенным Turbo Boost
+        let current_freq = base_freq * (performance_percent / 100.0);
+        
+        // Проверяем разумность значения
+        if current_freq > 0.1 && current_freq < 10.0 {
+            Ok(current_freq)
+        } else {
+            // Возвращаем базовую частоту, если значение нереалистично
+            Ok(base_freq)
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_current_frequency_windows_wmi() -> Result<f64, String> {
+    use std::process::Command;
+    
+    // Используем WMI через powershell для получения текущей частоты
+    let output = Command::new("powershell")
+        .args(&[
+            "-Command",
+            "Get-WmiObject -Class Win32_Processor | Select-Object -ExpandProperty CurrentClockSpeed"
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if result.is_empty() {
+            return Err("Пустой результат от WMI".to_string());
+        }
+        
+        match result.parse::<f64>() {
+            Ok(mhz) => Ok(mhz / 1000.0), // Конвертируем МГц в ГГц
+            Err(_) => Err("Не удалось преобразовать результат в число".to_string())
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(format!("Ошибка выполнения команды WMI: {}", stderr))
+    }
+}
+
+fn get_base_frequency_cpuid() -> Option<f64> {
+    // Используем raw_cpuid для доступа к CPUID
+    #[cfg(target_arch = "x86_64")]
+    {
+        let cpuid = raw_cpuid::CpuId::new();
+        
+        // Пытаемся получить информацию через brand string (самый надежный метод)
+        if let Some(brand_info) = cpuid.get_processor_brand_string() {
+            let brand_str = brand_info.as_str();
+            
+            // Ищем частоту в строке (например "@ 3.60GHz")
+            if let Some(idx) = brand_str.find('@') {
+                let freq_part = &brand_str[idx + 1..];
+                if let Some(end_idx) = freq_part.find("GHz") {
+                    let freq_str = &freq_part[..end_idx].trim();
+                    if let Ok(freq) = freq_str.parse::<f64>() {
+                        if freq > 0.0 {
+                            return Some(freq);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Запасной вариант - CPUID leaf 0x16
+        if let Some(frequency_info) = cpuid.get_processor_frequency_info() {
+            let base_freq = frequency_info.processor_base_frequency();
+            if base_freq > 0 {
+                return Some(base_freq as f64 / 1000.0);
+            }
+        }
+        
+        None
+    }
+    
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn get_base_frequency_from_proc_cpuinfo() -> Option<f64> {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    
+    if let Ok(file) = File::open("/proc/cpuinfo") {
+        let reader = BufReader::new(file);
+        
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                // Разные процессоры могут иметь разные поля
+                if line.contains("cpu MHz") || line.contains("clock") {
+                    let parts: Vec<&str> = line.split(':').collect();
+                    if parts.len() >= 2 {
+                        let value = parts[1].trim();
+                        if let Ok(mhz) = value.parse::<f64>() {
+                            return Some(mhz / 1000.0);
+                        }
+                    }
+                }
+                
+                // Для некоторых систем может быть доступна информация о модели
+                if line.contains("model name") && line.contains("@") {
+                    let parts: Vec<&str> = line.split('@').collect();
+                    if parts.len() >= 2 {
+                        let freq_part = parts[1].trim();
+                        if freq_part.contains("GHz") {
+                            let freq_str = freq_part.replace("GHz", "").trim().to_string();
+                            if let Ok(ghz) = freq_str.parse::<f64>() {
+                                return Some(ghz);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn get_base_frequency_from_sys() -> Option<f64> {
+    use std::fs::read_to_string;
+    
+    // Некоторые системы хранят информацию о базовой частоте в sys
+    if let Ok(contents) = read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/base_frequency") {
+        if let Ok(khz) = contents.trim().parse::<f64>() {
+            return Some(khz / 1_000_000.0);
+        }
+    }
+    
+    // Пробуем другой файл
+    if let Ok(contents) = read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq") {
+        if let Ok(khz) = contents.trim().parse::<f64>() {
+            return Some(khz / 1_000_000.0);
+        }
+    }
+    
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn get_max_frequency_from_sys() -> Option<f64> {
+    use std::fs::read_to_string;
+    
+    // В Linux максимальная частота обычно доступна в sys
+    if let Ok(contents) = read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq") {
+        if let Ok(khz) = contents.trim().parse::<f64>() {
+            return Some(khz / 1_000_000.0);
+        }
+    }
+    
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn get_current_frequency_from_proc() -> Option<f64> {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    
+    if let Ok(file) = File::open("/proc/cpuinfo") {
+        let reader = BufReader::new(file);
+        
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                if line.contains("cpu MHz") {
+                    let parts: Vec<&str> = line.split(':').collect();
+                    if parts.len() >= 2 {
+                        let value = parts[1].trim();
+                        if let Ok(mhz) = value.parse::<f64>() {
+                            return Some(mhz / 1000.0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn get_current_frequency_from_sys() -> Option<f64> {
+    use std::fs::read_to_string;
+    
+    // В Linux текущая частота обычно доступна в sys
+    if let Ok(contents) = read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq") {
+        if let Ok(khz) = contents.trim().parse::<f64>() {
+            return Some(khz / 1_000_000.0);
+        }
+    }
+    
+    None
+} 

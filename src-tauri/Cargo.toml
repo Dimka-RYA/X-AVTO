@@ -35,6 +35,7 @@ lazy_static = "1.5.0"
 diesel = { version = "2.1.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
 diesel_migrations = "2.1.0"
 raw-cpuid = "11.0.1"
+log = "0.4.20"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem

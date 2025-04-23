@@ -1,0 +1,1 @@
+    static ref SYSTEM: Mutex<System> = Mutex::new(System::new_all());

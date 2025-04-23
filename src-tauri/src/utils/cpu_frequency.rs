@@ -4,29 +4,28 @@
 use std::process::Command;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
-use sysinfo::{System, CpuRefreshKind, RefreshKind};
-use std::time::Instant;
-
-// Добавляем библиотеку для доступа к CPUID
+use sysinfo::{System, RefreshKind, CpuRefreshKind};
 use raw_cpuid::CpuId;
+use std::time::Instant;
+use std::collections::VecDeque;
+use std::ptr::null_mut;
 
 // WinAPI для доступа к счетчикам производительности Windows
 #[cfg(target_os = "windows")]
-use winapi::um::pdh::{PdhOpenQueryA, PdhAddCounterA, PdhCollectQueryData, PdhGetFormattedCounterValue, PDH_FMT_DOUBLE, PDH_FMT_COUNTERVALUE};
+use winapi::um::pdh::{PdhOpenQueryA, PdhAddEnglishCounterA, PdhCollectQueryData, PdhGetFormattedCounterValue, PDH_FMT_DOUBLE, PDH_FMT_COUNTERVALUE, PDH_HQUERY, PDH_HCOUNTER};
 #[cfg(target_os = "windows")]
-use winapi::um::pdh::{PDH_HQUERY, PDH_HCOUNTER};
+use winapi::shared::minwindef::DWORD;
+#[cfg(target_os = "windows")]
+use winapi::shared::ntdef::NULL;
 #[cfg(target_os = "windows")]
 use std::ffi::CString;
-#[cfg(target_os = "windows")]
-use std::ptr;
 
-// Безопасные обертки для PDH типов, чтобы их можно было отправлять между потоками
+// Безопасные обертки для PDH типов с правильными типами данных, чтобы их можно было отправлять между потоками
 #[cfg(target_os = "windows")]
-struct SafeQueryHandle(*mut std::ffi::c_void);
+struct SafeQueryHandle(PDH_HQUERY);
 #[cfg(target_os = "windows")]
-struct SafeCounterHandle(*mut std::ffi::c_void);
+struct SafeCounterHandle(PDH_HCOUNTER);
 
-// Реализуем Send и Sync для наших безопасных оберток
 #[cfg(target_os = "windows")]
 unsafe impl Send for SafeQueryHandle {}
 #[cfg(target_os = "windows")]
@@ -35,6 +34,19 @@ unsafe impl Sync for SafeQueryHandle {}
 unsafe impl Send for SafeCounterHandle {}
 #[cfg(target_os = "windows")]
 unsafe impl Sync for SafeCounterHandle {}
+
+// Определяем структуру для доступа к значению счетчика
+#[cfg(target_os = "windows")]
+#[repr(C)]
+struct PdhFmtCounterValue {
+    status: u32,
+    value: f64,
+}
+
+// Константы определенные из данных Get-CimInstance
+const INTEL_I5_13400_BASE_SPEED: f64 = 2.5; // ГГц
+const INTEL_I5_13400_MAX_SPEED: f64 = 4.6; // ГГц для P-core Turbo
+const INTEL_I5_13400_E_CORE_MAX_SPEED: f64 = 3.3; // ГГц для E-core
 
 lazy_static! {
     // Кэшируем значение базовой частоты, так как оно редко меняется
@@ -47,6 +59,8 @@ lazy_static! {
     static ref LAST_MEASURE_TIME: Mutex<Instant> = Mutex::new(Instant::now());
     // Сохраняем последнюю рассчитанную частоту
     static ref LAST_FREQUENCY: Mutex<f64> = Mutex::new(0.0);
+    // Храним историю частот для более плавного отображения
+    static ref FREQUENCY_HISTORY: Mutex<VecDeque<f64>> = Mutex::new(VecDeque::with_capacity(10));
     
     // Хранение Handle для Windows PDH
     #[cfg(target_os = "windows")]
@@ -55,38 +69,66 @@ lazy_static! {
     static ref PDH_COUNTER_HANDLE: Mutex<Option<SafeCounterHandle>> = Mutex::new(None);
     #[cfg(target_os = "windows")]
     static ref PDH_INITIALIZED: Mutex<bool> = Mutex::new(false);
+    
+    // Идентификация процессора
+    static ref CPU_MODEL: Mutex<String> = Mutex::new(String::new());
+    static ref CPU_PHYSICAL_CORES: Mutex<usize> = Mutex::new(0);
+    static ref CPU_LOGICAL_CORES: Mutex<usize> = Mutex::new(0);
 }
 
-/// Получает текущую частоту процессора в ГГц, используя нативные API
+/// Получает текущую частоту процессора в ГГц на основе нагрузки из Windows Management
 /// Возвращает значение в ГГц (например, 3.5 для 3.5 ГГц)
 pub fn get_current_cpu_frequency() -> f64 {
+    // Инициализация информации о процессоре, если это первый запуск
+    initialize_cpu_info_if_needed();
+    
     // Получаем базовую и максимальную частоты для расчетов
     let base_freq = get_base_cpu_frequency();
     let max_freq = get_max_cpu_frequency();
     
-    // Пытаемся получить частоту через Windows PDH
+    // Получение нагрузки процессора через WMI - как в интерфейсе
     #[cfg(target_os = "windows")]
-    if let Some(freq) = get_frequency_from_windows_pdh() {
-        // Убеждаемся, что частота в пределах разумного диапазона
-        let capped_freq = freq.max(base_freq * 0.7).min(max_freq * 1.05);
-        
-        // Применяем сглаживание к полученному значению
-        let mut last_freq = LAST_FREQUENCY.lock().unwrap();
-        let smoothing = 0.3; // 30% веса для нового значения
-        let smoothed_freq = *last_freq * (1.0 - smoothing) + capped_freq * smoothing;
-        *last_freq = smoothed_freq;
-        
-        println!("[DEBUG] Частота CPU (PDH): {} ГГц, База: {} ГГц, Макс: {} ГГц", 
-                 smoothed_freq, base_freq, max_freq);
-        
-        return smoothed_freq;
+    {
+        // Запрашиваем текущую нагрузку через WMI - точно так же, как это делает UI
+        if let Ok(output) = Command::new("powershell")
+            .args(["-NoProfile", "-Command", "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty LoadPercentage"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(load_percentage) = output_str.trim().parse::<f64>() {
+                    // Точно такое же значение нагрузки отображается в интерфейсе
+                    
+                    // Прямая линейная зависимость между нагрузкой и частотой
+                    let target_freq = base_freq + (max_freq - base_freq) * (load_percentage / 100.0);
+                    
+                    // Добавляем в историю для сглаживания
+                    let mut history = FREQUENCY_HISTORY.lock().unwrap();
+                    if history.len() >= 10 {
+                        history.pop_front();
+                    }
+                    history.push_back(target_freq);
+                    
+                    // Вычисляем среднее для сглаживания
+                    let smoothed_freq = history.iter().sum::<f64>() / history.len() as f64;
+                    
+                    // Выводим отладочную информацию с WMI-нагрузкой, которая совпадает с UI
+                    println!("[DEBUG] Частота CPU (WMI-нагрузка): {} ГГц, Нагрузка WMI: {}%, База: {} ГГц, Макс: {} ГГц", 
+                            smoothed_freq, load_percentage, base_freq, max_freq);
+                    
+                    // Обновляем последнее значение
+                    *LAST_FREQUENCY.lock().unwrap() = smoothed_freq;
+                    
+                    return smoothed_freq;
+                }
+            }
+        }
     }
     
-    // Если через PDH не получилось или это не Windows, используем расчёт через нагрузку процессора
+    // Запасной вариант, если WMI не сработал (или это не Windows)
     let mut sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
     sys.refresh_cpu();
     
-    // Вычисляем среднюю нагрузку на CPU
+    // Вычисляем среднюю нагрузку
     let cpu_count = sys.cpus().len() as f32;
     let cpu_load = if cpu_count > 0.0 {
         sys.cpus().iter().map(|p| p.cpu_usage()).sum::<f32>() / cpu_count
@@ -97,38 +139,25 @@ pub fn get_current_cpu_frequency() -> f64 {
     // Преобразуем загрузку в диапазон от 0.0 до 1.0
     let load_factor = (cpu_load / 100.0) as f64;
     
-    // Улучшенная нелинейная формула для реалистичного отображения турбо-буста
-    let min_freq = base_freq * 0.7;
-    let freq_range = max_freq - min_freq;
+    // Прямая линейная зависимость
+    let target_freq = base_freq + (max_freq - base_freq) * load_factor;
     
-    // Нелинейная зависимость частоты от нагрузки
-    let target_freq = if load_factor < 0.2 {
-        // При очень низкой нагрузке
-        min_freq + freq_range * (load_factor / 0.2) * 0.3
-    } else if load_factor < 0.5 {
-        // При низкой и средней нагрузке
-        min_freq + freq_range * 0.3 + freq_range * 0.2 * ((load_factor - 0.2) / 0.3)
-    } else if load_factor < 0.8 {
-        // При средне-высокой нагрузке
-        min_freq + freq_range * 0.5 + freq_range * 0.3 * ((load_factor - 0.5) / 0.3)
-    } else {
-        // При высокой нагрузке - максимальный турбо-буст
-        min_freq + freq_range * 0.8 + freq_range * 0.2 * ((load_factor - 0.8) / 0.2)
-    };
+    // Добавляем в историю для сглаживания
+    let mut history = FREQUENCY_HISTORY.lock().unwrap();
+    if history.len() >= 10 {
+        history.pop_front();
+    }
+    history.push_back(target_freq);
     
-    // Получаем предыдущее значение частоты для сглаживания
-    let mut last_freq = LAST_FREQUENCY.lock().unwrap();
-    
-    // Применяем сглаживание для более плавного отображения
-    let smoothing_factor = 0.2; // 20% от нового значения
-    let smoothed_freq = *last_freq * (1.0 - smoothing_factor) + target_freq * smoothing_factor;
-    
-    // Обновляем последнее значение частоты
-    *last_freq = smoothed_freq;
+    // Вычисляем среднее для сглаживания
+    let smoothed_freq = history.iter().sum::<f64>() / history.len() as f64;
     
     // Выводим отладочную информацию
-    println!("[DEBUG] Частота CPU (нагрузка): {} ГГц, Нагрузка: {}%, База: {} ГГц, Макс: {} ГГц", 
-             smoothed_freq, cpu_load, base_freq, max_freq);
+    println!("[DEBUG] Частота CPU (запасной метод): {} ГГц, Нагрузка: {}%, База: {} ГГц, Макс: {} ГГц", 
+            smoothed_freq, cpu_load, base_freq, max_freq);
+    
+    // Обновляем последнее значение
+    *LAST_FREQUENCY.lock().unwrap() = smoothed_freq;
     
     smoothed_freq
 }
@@ -140,8 +169,9 @@ fn get_frequency_from_windows_pdh() -> Option<f64> {
         // Инициализируем счетчики PDH если ещё не инициализированы
         let mut initialized = PDH_INITIALIZED.lock().unwrap();
         if !*initialized {
-            let mut query_handle: PDH_HQUERY = ptr::null_mut();
-            let result = PdhOpenQueryA(ptr::null(), 0, &mut query_handle);
+            // Используем правильный тип для query_handle
+            let mut query_handle: PDH_HQUERY = null_mut();
+            let result = PdhOpenQueryA(NULL as *const i8, 0, &mut query_handle);
             
             if result == 0 {
                 // Пробуем разные счетчики частоты, начиная с более точного
@@ -151,12 +181,12 @@ fn get_frequency_from_windows_pdh() -> Option<f64> {
                     "\\Processor(_Total)\\% Processor Time"
                 ];
                 
-                let mut counter_handle: PDH_HCOUNTER = ptr::null_mut();
+                let mut counter_handle: PDH_HCOUNTER = null_mut();
                 let mut success = false;
                 
                 for &path in counter_paths.iter() {
                     let counter_path = CString::new(path).unwrap();
-                    let add_result = PdhAddCounterA(
+                    let add_result = PdhAddEnglishCounterA(
                         query_handle,
                         counter_path.as_ptr(),
                         0,
@@ -180,56 +210,36 @@ fn get_frequency_from_windows_pdh() -> Option<f64> {
         // Если счетчики инициализированы, используем их
         if *initialized {
             if let (Some(query), Some(counter)) = (
-                PDH_QUERY_HANDLE.lock().unwrap().as_ref().map(|h| h.0),
-                PDH_COUNTER_HANDLE.lock().unwrap().as_ref().map(|h| h.0)
+                PDH_QUERY_HANDLE.lock().unwrap().as_ref(),
+                PDH_COUNTER_HANDLE.lock().unwrap().as_ref()
             ) {
-                let result = PdhCollectQueryData(query);
+                // Передаем правильный тип в функцию
+                let result = PdhCollectQueryData(query.0);
                 if result == 0 {
                     let mut counter_value: PDH_FMT_COUNTERVALUE = std::mem::zeroed();
+                    // Передаем правильный тип в функцию
                     let result = PdhGetFormattedCounterValue(
-                        counter,
+                        counter.0,
                         PDH_FMT_DOUBLE as u32,
-                        ptr::null_mut(),
+                        null_mut(),
                         &mut counter_value
                     );
                     
                     if result == 0 {
-                        // Получаем значение double из счетчика
-                        let mut double_val: f64 = 0.0;
+                        // Получаем значение из объединения через безопасное приведение типа
+                        // Используем тип PdhFmtCounterValue для доступа к полю value
+                        let raw_ptr = &counter_value as *const PDH_FMT_COUNTERVALUE as *const PdhFmtCounterValue;
+                        let double_val = unsafe { (*raw_ptr).value };
                         
-                        unsafe {
-                            // Используем определение из WinAPI
-                            #[repr(C)]
-                            struct PdhFmtCounterValue {
-                                status: u32,
-                                value: f64,
-                            }
-                            
-                            // Копируем значение из counter_value
-                            let raw_ptr = &counter_value as *const PDH_FMT_COUNTERVALUE as *const PdhFmtCounterValue;
-                            double_val = (*raw_ptr).value;
-                        }
-                        
-                        // Если это процент производительности, нужно умножить на макс. частоту
-                        if double_val <= 100.0 {
-                            let base_freq = get_base_cpu_frequency();
-                            let max_freq = get_max_cpu_frequency();
-                            let performance_range = max_freq - base_freq;
-                            let current_freq = base_freq + (double_val / 100.0) * performance_range;
-                            return Some(current_freq);
-                        }
-                        
-                        // Если это частота в МГц, преобразуем в ГГц
-                        if double_val > 100.0 {
-                            return Some(double_val / 1000.0);
-                        }
-                        
-                        // Если это процент времени процессора, используем для расчёта
+                        // Получаем кэшированные значения базовой и максимальной частоты
                         let base_freq = get_base_cpu_frequency();
                         let max_freq = get_max_cpu_frequency();
-                        let freq_range = max_freq - base_freq;
-                        let current_freq = base_freq + (double_val / 100.0) * freq_range;
-                        return Some(current_freq);
+                        
+                        // Расчет частоты
+                        // Полученное значение - это % производительности процессора, переводим его в частоту
+                        let freq = base_freq + (max_freq - base_freq) * (double_val / 100.0);
+                        
+                        return Some(freq.min(max_freq).max(base_freq));
                     }
                 }
             }
@@ -244,311 +254,305 @@ fn get_frequency_from_windows_pdh() -> Option<f64> {
     None
 }
 
-/// Получает информацию о процессоре через CPUID
+/// Получает информацию о процессоре через CPUID и WMI
 /// Возвращает (базовая_частота, максимальная_частота) в ГГц
 fn get_cpu_info_from_cpuid() -> (f64, f64) {
-    // Создаем экземпляр CpuId
-    let cpuid = CpuId::new();
-    
-    // Получаем базовую частоту из CPUID
     let mut base_freq = 0.0;
     let mut max_freq = 0.0;
     
-    // Получаем информацию о процессоре через бренд строку в первую очередь, 
-    // так как она часто содержит более точные данные чем processor_frequency_info
-    if let Some(processor_brand) = cpuid.get_processor_brand_string() {
-        // Преобразуем ProcessorBrandString в обычную строку
-        let brand_string = processor_brand.as_str();
-        println!("[DEBUG] CPUID: Модель процессора: {}", brand_string);
+    #[cfg(target_arch = "x86_64")]
+    {
+        let cpuid = CpuId::new();
         
-        // Извлекаем базовую частоту из названия процессора (если там есть GHz или @ символ)
-        if brand_string.contains("GHz") || brand_string.contains("@") {
-            let mut found_freq = false;
-            let parts: Vec<&str> = brand_string.split_whitespace().collect();
+        // Пытаемся получить информацию через brand string (самый надежный метод)
+        if let Some(brand_info) = cpuid.get_processor_brand_string() {
+            let brand_str = brand_info.as_str();
+            *CPU_MODEL.lock().unwrap() = brand_str.to_string();
             
-            // Ищем часть с @ - она обычно указывает на базовую частоту
-            for (i, &part) in parts.iter().enumerate() {
-                if part == "@" && i+1 < parts.len() {
-                    let freq_str = parts[i+1].trim_end_matches("GHz");
+            // Проверяем, есть ли в строке процессор i5-13400
+            if brand_str.contains("i5-13400") {
+                println!("[DEBUG] Обнаружен процессор Intel i5-13400");
+                base_freq = INTEL_I5_13400_BASE_SPEED;
+                max_freq = INTEL_I5_13400_MAX_SPEED;
+                return (base_freq, max_freq);
+            }
+            
+            // Ищем частоту в строке (например "@ 3.60GHz")
+            if let Some(idx) = brand_str.find('@') {
+                let freq_part = &brand_str[idx + 1..];
+                if let Some(end_idx) = freq_part.find("GHz") {
+                    let freq_str = &freq_part[..end_idx].trim();
                     if let Ok(freq) = freq_str.parse::<f64>() {
                         base_freq = freq;
-                        println!("[DEBUG] CPUID: Извлечена базовая частота из названия процессора: {} ГГц", base_freq);
-                        found_freq = true;
-                        break;
-                    }
-                }
-            }
-            
-            // Если не нашли через @, ищем по слову GHz
-            if !found_freq {
-                for (i, &part) in parts.iter().enumerate() {
-                    if part == "GHz" && i > 0 {
-                        if let Ok(freq) = parts[i-1].parse::<f64>() {
-                            base_freq = freq;
-                            println!("[DEBUG] CPUID: Извлечена базовая частота из названия процессора: {} ГГц", base_freq);
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            // Определяем модель и серию процессора для точного расчёта максимальной частоты
-            if base_freq > 0.0 {
-                // Определяем поколение процессора
-                let is_intel = brand_string.contains("Intel");
-                let is_amd = brand_string.contains("AMD");
-                
-                if is_intel {
-                    // Коэффициенты турбо-буста для различных серий Intel
-                    if brand_string.contains("i9") {
-                        max_freq = base_freq * 1.5; // i9 имеют высокий турбо-буст
-                    } else if brand_string.contains("i7") {
-                        max_freq = base_freq * 1.4; // i7 также высокий турбо-буст
-                    } else if brand_string.contains("i5") {
-                        // Проверяем поколение i5
-                        if brand_string.contains("12th") || brand_string.contains("13th") {
-                            max_freq = base_freq * 1.6; // Новые поколения i5 имеют очень высокий турбо
+                        
+                        // Определяем максимальную частоту на основе базовой
+                        if brand_str.contains("Intel") {
+                            if brand_str.contains("i9") {
+                                max_freq = base_freq * 1.5;
+                            } else if brand_str.contains("i7") {
+                                max_freq = base_freq * 1.4;
+                            } else if brand_str.contains("i5") {
+                                max_freq = base_freq * 1.35;
+                            } else if brand_str.contains("i3") {
+                                max_freq = base_freq * 1.25;
+                            } else {
+                                max_freq = base_freq * 1.2;
+                            }
+                        } else if brand_str.contains("AMD") {
+                            if brand_str.contains("Ryzen 9") {
+                                max_freq = base_freq * 1.5;
+                            } else if brand_str.contains("Ryzen 7") {
+                                max_freq = base_freq * 1.4;
+                            } else if brand_str.contains("Ryzen 5") {
+                                max_freq = base_freq * 1.35;
+                            } else if brand_str.contains("Ryzen 3") {
+                                max_freq = base_freq * 1.25;
+                            } else {
+                                max_freq = base_freq * 1.2;
+                            }
                         } else {
-                            max_freq = base_freq * 1.3; // Более старые i5
+                            max_freq = base_freq * 1.2;
                         }
-                    } else if brand_string.contains("i3") {
-                        max_freq = base_freq * 1.2; // i3 имеют меньший турбо-буст
-                    } else {
-                        max_freq = base_freq * 1.25; // Другие Intel
                     }
-                } else if is_amd {
-                    // Коэффициенты для AMD
-                    if brand_string.contains("Ryzen 9") {
-                        max_freq = base_freq * 1.45; // Ryzen 9 высокий турбо
-                    } else if brand_string.contains("Ryzen 7") {
-                        max_freq = base_freq * 1.4; // Ryzen 7
-                    } else if brand_string.contains("Ryzen 5") {
-                        max_freq = base_freq * 1.35; // Ryzen 5
-                    } else {
-                        max_freq = base_freq * 1.2; // Другие AMD
-                    }
-                } else {
-                    max_freq = base_freq * 1.2; // Другие процессоры
                 }
-                
-                println!("[DEBUG] CPUID: Рассчитана максимальная частота на основе модели: {} ГГц", max_freq);
+            }
+        }
+        
+        // Запасной вариант - CPUID leaf 0x16
+        if base_freq <= 0.0 {
+            if let Some(frequency_info) = cpuid.get_processor_frequency_info() {
+                let base_freq_mhz = frequency_info.processor_base_frequency();
+                if base_freq_mhz > 0 {
+                    base_freq = base_freq_mhz as f64 / 1000.0;
+                    
+                    // Пытаемся получить максимальную частоту
+                    let max_freq_mhz = frequency_info.processor_max_frequency();
+                    if max_freq_mhz > 0 {
+                        max_freq = max_freq_mhz as f64 / 1000.0;
+                    } else {
+                        // Если не удалось, предполагаем на основе базовой
+                        max_freq = base_freq * 1.3;
+                    }
+                }
             }
         }
     }
     
-    // Если не смогли получить через бренд-строку, пробуем через processor_frequency_info
+    // Если не удалось определить через CPUID, попробуем WMI (Windows)
     if base_freq <= 0.0 || max_freq <= 0.0 {
-        if let Some(processor_frequency_info) = cpuid.get_processor_frequency_info() {
-            // Базовая частота в MHz
-            if processor_frequency_info.processor_base_frequency() > 0 && base_freq <= 0.0 {
-                base_freq = processor_frequency_info.processor_base_frequency() as f64 / 1000.0;
-                println!("[DEBUG] CPUID: Базовая частота из frequency_info: {} ГГц", base_freq);
-            }
-            
-            // Максимальная частота в MHz
-            if processor_frequency_info.processor_max_frequency() > 0 {
-                let freq_from_info = processor_frequency_info.processor_max_frequency() as f64 / 1000.0;
-                
-                // Проверяем, имеет ли смысл использовать эту информацию
-                if freq_from_info > base_freq && (max_freq <= 0.0 || freq_from_info > max_freq) {
-                    max_freq = freq_from_info;
-                    println!("[DEBUG] CPUID: Максимальная частота из frequency_info: {} ГГц", max_freq);
-                }
-            }
-        }
-    }
-    
-    // Если до сих пор не удалось получить максимальную частоту, пробуем дополнительные методы
-    if max_freq <= 0.0 && base_freq > 0.0 {
-        // Определяем поколение процессора Intel/AMD для более точной оценки
-        if let Some(vendor) = cpuid.get_vendor_info() {
-            let vendor_name = vendor.as_str();
-            
-            if vendor_name.contains("Intel") {
-                // Получаем информацию о семействе и модели процессора
-                if let Some(feature_info) = cpuid.get_feature_info() {
-                    let family = feature_info.family_id();
-                    let model = feature_info.model_id();
-                    
-                    println!("[DEBUG] CPUID: Семейство: {}, Модель: {}", family, model);
-                    
-                    // Турбо-буст на основе семейства/модели
-                    if family >= 6 { // Современные Intel
-                        if model >= 0x5E { // Skylake и новее
-                            max_freq = base_freq * 1.4;
-                        } else {
-                            max_freq = base_freq * 1.3;
+        #[cfg(target_os = "windows")]
+        {
+            // Получаем базовую частоту через WMI
+            if let Ok(output) = Command::new("powershell")
+                .args(["-Command", "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty CurrentClockSpeed | ForEach-Object { $_ / 1000 }"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(freq) = output_str.trim().parse::<f64>() {
+                        if freq > 0.5 {
+                            base_freq = freq;
                         }
-                    } else {
-                        max_freq = base_freq * 1.2;
                     }
-                } else {
-                    max_freq = base_freq * 1.3; // Стандартный коэффициент для Intel
                 }
-            } else if vendor_name.contains("AMD") {
-                max_freq = base_freq * 1.25; // Стандартный коэффициент для AMD
-            } else {
-                max_freq = base_freq * 1.2; // Стандартный коэффициент
             }
             
-            println!("[DEBUG] CPUID: Вычислена максимальная частота: {} ГГц", max_freq);
+            // Получаем максимальную частоту через WMI
+            if let Ok(output) = Command::new("powershell")
+                .args(["-Command", "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty MaxClockSpeed | ForEach-Object { $_ / 1000 }"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(freq) = output_str.trim().parse::<f64>() {
+                        if freq > 0.5 {
+                            // WMI возвращает базовую частоту, а не max turbo
+                            // Для современных процессоров добавляем коэффициент
+                            max_freq = freq * 1.2;
+                        }
+                    }
+                }
+            }
+            
+            // Получаем имя процессора
+            if CPU_MODEL.lock().unwrap().is_empty() {
+                if let Ok(output) = Command::new("powershell")
+                    .args(["-Command", "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty Name"])
+                    .output() 
+                {
+                    if let Ok(output_str) = String::from_utf8(output.stdout) {
+                        *CPU_MODEL.lock().unwrap() = output_str.trim().to_string();
+                        
+                        // Если это i5-13400, установим известные значения
+                        if output_str.contains("i5-13400") {
+                            base_freq = INTEL_I5_13400_BASE_SPEED;
+                            max_freq = INTEL_I5_13400_MAX_SPEED;
+                        }
+                    }
+                }
+            }
+            
+            // Получаем количество ядер
+            if *CPU_PHYSICAL_CORES.lock().unwrap() == 0 {
+                if let Ok(output) = Command::new("powershell")
+                    .args(["-Command", "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty NumberOfCores"])
+                    .output() 
+                {
+                    if let Ok(output_str) = String::from_utf8(output.stdout) {
+                        if let Ok(cores) = output_str.trim().parse::<usize>() {
+                            *CPU_PHYSICAL_CORES.lock().unwrap() = cores;
+                        }
+                    }
+                }
+            }
+            
+            // Получаем количество логических ядер
+            if *CPU_LOGICAL_CORES.lock().unwrap() == 0 {
+                if let Ok(output) = Command::new("powershell")
+                    .args(["-Command", "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty NumberOfLogicalProcessors"])
+                    .output() 
+                {
+                    if let Ok(output_str) = String::from_utf8(output.stdout) {
+                        if let Ok(cores) = output_str.trim().parse::<usize>() {
+                            *CPU_LOGICAL_CORES.lock().unwrap() = cores;
+                        }
+                    }
+                }
+            }
         }
     }
     
-    // Проверка на разумность значений
-    if base_freq <= 0.1 {
-        base_freq = 2.0; // Fallback значение
-        println!("[WARN] Используем стандартное значение для базовой частоты: {} ГГц", base_freq);
+    // Если всё ещё не определены, используем значения по умолчанию
+    if base_freq <= 0.5 {
+        base_freq = 2.0;
     }
     
-    if max_freq <= base_freq {
-        max_freq = base_freq * 1.3; // Если max_freq некорректна, используем стандартный коэффициент
-        println!("[WARN] Корректировка максимальной частоты: {} ГГц", max_freq);
+    if max_freq <= 0.5 || max_freq < base_freq {
+        max_freq = base_freq * 1.3;
     }
     
     (base_freq, max_freq)
 }
 
-/// Получает базовую частоту процессора в ГГц
-/// Использует кэширование, так как базовая частота редко меняется
-/// Возвращает значение в ГГц (например, 3.5 для 3.5 ГГц)
+/// Инициализирует информацию о процессоре при первом запуске
+fn initialize_cpu_info_if_needed() {
+    // Проверяем, инициализирована ли информация о процессоре
+    let base_freq_initialized = CPU_BASE_FREQUENCY.lock().unwrap().is_some();
+    let max_freq_initialized = CPU_MAX_FREQUENCY.lock().unwrap().is_some();
+    
+    if !base_freq_initialized || !max_freq_initialized {
+        let (base_freq, max_freq) = get_cpu_info_from_cpuid();
+        
+        // Сохраняем базовую частоту
+        if !base_freq_initialized {
+            *CPU_BASE_FREQUENCY.lock().unwrap() = Some(base_freq);
+        }
+        
+        // Сохраняем максимальную частоту
+        if !max_freq_initialized {
+            *CPU_MAX_FREQUENCY.lock().unwrap() = Some(max_freq);
+        }
+        
+        println!("[DEBUG] Инициализация процессора: Модель: {}, База: {} ГГц, Макс: {} ГГц, Физические ядра: {}, Логические ядра: {}", 
+             CPU_MODEL.lock().unwrap(), base_freq, max_freq, 
+             CPU_PHYSICAL_CORES.lock().unwrap(), CPU_LOGICAL_CORES.lock().unwrap());
+    }
+}
+
+/// Получает базовую частоту процессора
 pub fn get_base_cpu_frequency() -> f64 {
-    // Проверяем, есть ли закэшированное значение
-    {
-        let base_freq = CPU_BASE_FREQUENCY.lock().unwrap();
-        if let Some(freq) = *base_freq {
-            if freq > 0.5 { // Проверяем на разумное значение
-                return freq;
-            }
-        }
+    // Инициализируем при необходимости
+    if CPU_BASE_FREQUENCY.lock().unwrap().is_none() {
+        initialize_cpu_info_if_needed();
     }
     
-    // Сначала пробуем получить через CPUID как самый точный метод
-    let (cpuid_base_freq, _) = get_cpu_info_from_cpuid();
-    if cpuid_base_freq > 0.5 {
-        // Кэшируем значение
-        let mut base_freq = CPU_BASE_FREQUENCY.lock().unwrap();
-        *base_freq = Some(cpuid_base_freq);
-        return cpuid_base_freq;
-    }
-    
-    // Пытаемся получить информацию о процессоре через WMI
-    if let Ok(output) = Command::new("powershell")
-        .args(["-Command", "Get-WmiObject -Class Win32_Processor | Select-Object -ExpandProperty CurrentClockSpeed | ForEach-Object { $_ / 1000 }"])
-        .output() 
-    {
-        if let Ok(output_str) = String::from_utf8(output.stdout) {
-            if let Ok(freq) = output_str.trim().parse::<f64>() {
-                if freq > 0.5 { // Проверка на разумное значение
-                    println!("[DEBUG] Получена базовая частота CPU (WMI): {} ГГц", freq);
-                    // Кэшируем значение
-                    let mut base_freq = CPU_BASE_FREQUENCY.lock().unwrap();
-                    *base_freq = Some(freq);
-                    return freq;
-                }
-            }
-        }
-    }
-    
-    // Альтернативный метод через PowerShell и реестр
-    if let Ok(output) = Command::new("powershell")
-        .args(["-Command", "(Get-ItemProperty 'HKLM:\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0').~MHz / 1000"])
-        .output() 
-    {
-        if let Ok(output_str) = String::from_utf8(output.stdout) {
-            if let Ok(freq) = output_str.trim().parse::<f64>() {
-                if freq > 0.5 { // Проверка на разумное значение
-                    println!("[DEBUG] Получена базовая частота CPU (реестр): {} ГГц", freq);
-                    // Кэшируем значение
-                    let mut base_freq = CPU_BASE_FREQUENCY.lock().unwrap();
-                    *base_freq = Some(freq);
-                    return freq;
-                }
-            }
-        }
-    }
-    
-    // Если все методы не сработали, используем sysinfo
-    let freq = get_cpu_frequency_from_sysinfo();
-    if freq > 0.5 {
-        // Кэшируем значение
-        let mut base_freq = CPU_BASE_FREQUENCY.lock().unwrap();
-        *base_freq = Some(freq);
-        return freq;
-    }
-    
-    // Если и это не сработало, используем стандартное значение
-    let default_freq = 2.0; // Разумное значение по умолчанию
-    println!("[WARN] Не удалось определить базовую частоту CPU, используем стандартное значение: {} ГГц", default_freq);
-    let mut base_freq = CPU_BASE_FREQUENCY.lock().unwrap();
-    *base_freq = Some(default_freq);
-    default_freq
+    // Возвращаем кэшированное значение или определяем заново
+    CPU_BASE_FREQUENCY.lock().unwrap().unwrap_or_else(|| {
+        let (base_freq, _) = get_cpu_info_from_cpuid();
+        *CPU_BASE_FREQUENCY.lock().unwrap() = Some(base_freq);
+        base_freq
+    })
 }
 
-/// Получает максимальную частоту процессора в ГГц (для турбо режима)
+/// Получает максимальную частоту процессора
 pub fn get_max_cpu_frequency() -> f64 {
-    // Проверяем, есть ли закэшированное значение
-    {
-        let max_freq = CPU_MAX_FREQUENCY.lock().unwrap();
-        if let Some(freq) = *max_freq {
-            if freq > 0.5 { // Проверяем на разумное значение
-                return freq;
-            }
-        }
+    // Инициализируем при необходимости
+    if CPU_MAX_FREQUENCY.lock().unwrap().is_none() {
+        initialize_cpu_info_if_needed();
     }
     
-    // Сначала пробуем получить через CPUID как самый точный метод
-    let (_, cpuid_max_freq) = get_cpu_info_from_cpuid();
-    if cpuid_max_freq > 0.5 {
-        // Кэшируем значение
-        let mut max_freq = CPU_MAX_FREQUENCY.lock().unwrap();
-        *max_freq = Some(cpuid_max_freq);
-        return cpuid_max_freq;
-    }
-    
-    // Пытаемся получить информацию о процессоре через WMI
-    if let Ok(output) = Command::new("powershell")
-        .args(["-Command", "Get-WmiObject -Class Win32_Processor | Select-Object -ExpandProperty MaxClockSpeed | ForEach-Object { $_ / 1000 }"])
-        .output() 
-    {
-        if let Ok(output_str) = String::from_utf8(output.stdout) {
-            if let Ok(freq) = output_str.trim().parse::<f64>() {
-                if freq > 0.5 { // Проверка на разумное значение
-                    println!("[DEBUG] Получена максимальная частота CPU: {} ГГц", freq);
-                    // Кэшируем значение
-                    let mut max_freq = CPU_MAX_FREQUENCY.lock().unwrap();
-                    *max_freq = Some(freq);
-                    return freq;
-                }
-            }
-        }
-    }
-    
-    // Если не удалось определить, используем базовую частоту с коэффициентом
-    let base_freq = get_base_cpu_frequency();
-    let max_freq = base_freq * 1.3; // Типичный коэффициент турбо-буста
-    println!("[DEBUG] Получена максимальная частота CPU (на основе базовой): {} ГГц", max_freq);
-    
-    // Кэшируем значение
-    let mut max_freq_cache = CPU_MAX_FREQUENCY.lock().unwrap();
-    *max_freq_cache = Some(max_freq);
-    max_freq
+    // Возвращаем кэшированное значение или определяем заново
+    CPU_MAX_FREQUENCY.lock().unwrap().unwrap_or_else(|| {
+        let (_, max_freq) = get_cpu_info_from_cpuid();
+        *CPU_MAX_FREQUENCY.lock().unwrap() = Some(max_freq);
+        max_freq
+    })
 }
 
-/// Получает текущую частоту ЦП с помощью sysinfo (без дополнительных методов)
-/// Используется как резервный вариант, если другие методы не сработали
-/// Возвращает значение в ГГц (например, 3.5 для 3.5 ГГц)
+/// Проверяет, имеет ли процессор гибридную архитектуру (P-cores + E-cores)
+fn has_hybrid_cores() -> bool {
+    let model = CPU_MODEL.lock().unwrap();
+    
+    // 12th+ Gen Intel имеют гибридную архитектуру
+    model.contains("Intel") && (
+        model.contains("12") || 
+        model.contains("13") || 
+        model.contains("14")
+    )
+}
+
+/// Получает примерное количество производительных ядер (P-cores)
+fn get_p_core_count() -> usize {
+    let physical_cores = *CPU_PHYSICAL_CORES.lock().unwrap();
+    
+    if has_hybrid_cores() {
+        // Для i5-13400 известно, что P-cores = 6
+        let model = CPU_MODEL.lock().unwrap();
+        if model.contains("i5-13400") {
+            return 6;
+        }
+        
+        // Для других моделей с гибридной архитектурой оцениваем количество P-cores
+        // типичное соотношение для Intel 12/13 gen:
+        if physical_cores > 10 {
+            physical_cores / 2 + 2 // Для i9/i7 обычно примерно половина + 2
+        } else if physical_cores > 6 {
+            physical_cores / 2 + 1 // Для i5 обычно примерно половина + 1
+        } else {
+            physical_cores / 2 // Для i3 обычно половина
+        }
+    } else {
+        // Для не-гибридных архитектур все ядра - P-cores
+        physical_cores
+    }
+}
+
+/// Получает частоту процессора из системной информации
+/// Это не очень точный метод, но может использоваться как резервный
 pub fn get_cpu_frequency_from_sysinfo() -> f64 {
     let mut sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
-    
     sys.refresh_cpu();
     
-    if let Some(cpu) = sys.cpus().first() {
-        let freq = cpu.frequency() as f64 / 1000.0;
-        println!("[DEBUG] Частота ЦП через sysinfo: {} ГГц", freq);
-        freq
+    let base_freq = get_base_cpu_frequency();
+    let max_freq = get_max_cpu_frequency();
+    
+    // Вычисляем среднюю нагрузку на CPU
+    let cpu_count = sys.cpus().len() as f32;
+    let cpu_load = if cpu_count > 0.0 {
+        sys.cpus().iter().map(|p| p.cpu_usage()).sum::<f32>() / cpu_count
     } else {
-        println!("[ERROR] Не удалось получить информацию о CPU через sysinfo");
         0.0
+    };
+    
+    // Преобразуем загрузку в диапазон от 0.0 до 1.0
+    let load_factor = (cpu_load / 100.0) as f64;
+    
+    // Нелинейная зависимость частоты от нагрузки
+    let freq_range = max_freq - base_freq;
+    
+    if load_factor < 0.2 {
+        base_freq + freq_range * 0.2 * load_factor
+    } else if load_factor < 0.7 {
+        base_freq + freq_range * 0.2 + freq_range * 0.6 * ((load_factor - 0.2) / 0.5)
+    } else {
+        base_freq + freq_range * 0.8 + freq_range * 0.2 * ((load_factor - 0.7) / 0.3)
     }
 } 
