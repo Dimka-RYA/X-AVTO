@@ -4,7 +4,7 @@ import { Routes, Route } from 'react-router-dom';
 import { Navigation } from './components/Navigation/Navigation';
 import { TopBar } from './components/TopBar/TopBar';
 import { Home } from './Tabs/HomeTab/Home';
-import { Requests } from './Tabs/RequestsTab/Requests';
+import { RequestsTab } from './Tabs/RequestsTab/RequestsTab';
 import { Ports } from './Tabs/PortsTab/Ports';
 import { Scripts } from './Tabs/ScriptsTab/Scripts';
 import { State } from './Tabs/StatusTab/Status';
@@ -23,7 +23,7 @@ function App() {
             <div className="content">
               <Routes>
                 <Route path="/" element={<Home />} />
-                <Route path="/requests" element={<Requests />} />
+                <Route path="/requests" element={<RequestsTab />} />
                 <Route path="/ports" element={<Ports />} />
                 <Route path="/scripts" element={<Scripts />} />
                 <Route path="/state" element={<State />} />
