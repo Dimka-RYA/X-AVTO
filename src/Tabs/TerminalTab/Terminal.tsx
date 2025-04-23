@@ -1716,8 +1716,8 @@ export const Terminal = () => {
     }
   };
 
-  return (
-    <div className="terminal-container">
+    return (
+      <div className="terminal-container">
       {/* Ошибка терминала */}
       {error && (
         <div className="terminal-error">
@@ -1882,6 +1882,6 @@ export const Terminal = () => {
           </div>
         </div>
       )}
-    </div>
-  );
-};
+      </div>
+    );
+  };

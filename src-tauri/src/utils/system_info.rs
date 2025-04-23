@@ -10,6 +10,9 @@ use tauri::Emitter;
 use lazy_static::lazy_static;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+// Добавляем импорт нового модуля
+use crate::utils::cpu_frequency::{get_current_cpu_frequency, get_base_cpu_frequency};
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ProcessorInfo {
     pub name: String,
@@ -195,6 +198,10 @@ impl SystemInfoCache {
 // Глобальное состояние мониторинга - активен ли он
 lazy_static! {
     static ref MONITORING_ACTIVE: AtomicBool = AtomicBool::new(false);
+    static ref CPU_DETAILS_CACHE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+    static ref CPU_DETAILS_CACHE_TIME: Mutex<std::time::Instant> = Mutex::new(std::time::Instant::now());
+    static ref CPU_TEMPERATURE: Mutex<Option<f32>> = Mutex::new(None);
+    static ref CPU_THREADS: Mutex<Option<usize>> = Mutex::new(None);
 }
 
 // Команда для включения/выключения мониторинга
@@ -391,11 +398,8 @@ fn update_cpu_dynamic_data(cache: &CpuCache) {
         0.0
     };
     
-    // Получаем текущую частоту процессора
-    let mut frequency = 0.0;
-    if let Some(cpu) = sys.cpus().first() {
-        frequency = cpu.frequency() as f64 / 1000.0;
-    }
+    // Получаем текущую частоту процессора из отдельного модуля
+    let frequency = get_current_cpu_frequency();
     
     // Получаем температуру процессора (редко и только если было последнее обновление давно)
     let temp;
@@ -445,7 +449,7 @@ fn update_cpu_static_data(cache: &CpuCache) {
     // Получаем детальную информацию о процессоре
     let cpu_details = get_cpu_details_cached();
     
-    // Получаем базовую частоту процессора
+    // Получаем базовую частоту процессора из отдельного модуля
     let base_frequency = get_base_cpu_frequency();
     
     // Определяем максимальную частоту процессора
@@ -626,12 +630,12 @@ fn update_disk_data(cache: &DiskCache) {
 // ------ Утилиты для получения данных ------
 
 // Кэшируем некоторые данные, которые редко меняются
-lazy_static! {
-    static ref CPU_DETAILS_CACHE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
-    static ref CPU_DETAILS_CACHE_TIME: Mutex<std::time::Instant> = Mutex::new(std::time::Instant::now());
-    static ref CPU_BASE_FREQUENCY: Mutex<Option<f64>> = Mutex::new(None);
-    static ref CPU_THREADS: Mutex<Option<usize>> = Mutex::new(None);
-}
+// lazy_static! {
+//     static ref CPU_DETAILS_CACHE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+//     static ref CPU_DETAILS_CACHE_TIME: Mutex<std::time::Instant> = Mutex::new(std::time::Instant::now());
+//     static ref CPU_TEMPERATURE: Mutex<Option<f32>> = Mutex::new(None);
+//     static ref CPU_THREADS: Mutex<Option<usize>> = Mutex::new(None);
+// }
 
 // Оптимизированная функция для получения данных о процессоре с учетом потенциальных таймаутов
 #[cfg(target_os = "windows")]
@@ -721,16 +725,7 @@ fn get_system_info_internal() -> SystemInfo {
     let current_frequency = get_current_cpu_frequency();
     
     // Получаем базовую частоту процессора с кэшированием
-    let base_frequency = {
-        let mut base_freq = CPU_BASE_FREQUENCY.lock().unwrap();
-        if let Some(freq) = *base_freq {
-            freq
-        } else {
-            let freq = get_base_cpu_frequency();
-            *base_freq = Some(freq);
-            freq
-        }
-    };
+    let base_frequency = get_base_cpu_frequency();
     
     // Определяем максимальную частоту процессора
     let max_frequency = cpu_details.get("MaxClockSpeed")
@@ -1132,222 +1127,6 @@ fn get_cpu_usage() -> f32 {
         println!("[DEBUG] Нагрузка ЦП через sysinfo: {}%", total_usage);
         return total_usage;
     }
-}
-
-// Функция для получения текущей частоты процессора (в ГГц)
-fn get_current_cpu_frequency() -> f64 {
-    #[cfg(target_os = "windows")]
-    {
-        // Улучшенный метод для Windows - через WMI с более надежным запросом
-        let guard = std::thread::spawn(|| {
-            // Метод 1: PowerShell и WMI
-            if let Ok(output) = Command::new("powershell")
-                .args(["-Command", "(Get-WmiObject -Class Win32_Processor).CurrentClockSpeed / 1000.0"])
-                .output() 
-            {
-                if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    if let Ok(freq) = output_str.trim().parse::<f64>() {
-                        if freq > 0.1 {  // Проверяем, что получено разумное значение
-                            println!("[DEBUG] Метод 1: Текущая частота ЦП через WMI: {} ГГц", freq);
-                            return freq;
-                        }
-                    }
-                }
-            }
-            
-            // Метод 2: используем другой PowerShell-запрос для текущей частоты
-            if let Ok(output) = Command::new("powershell")
-                .args(["-Command", "Get-Counter -Counter '\\Processor Information(_Total)\\Processor Frequency' | Select-Object -ExpandProperty CounterSamples | Select-Object -ExpandProperty CookedValue"])
-                .output() 
-            {
-                if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    if let Ok(freq) = output_str.trim().parse::<f64>() {
-                        if freq > 0.1 {  // Валидное значение
-                            println!("[DEBUG] Метод 2: Текущая частота ЦП через CounterSamples: {} ГГц", freq);
-                            return freq / 1000.0; // может вернуться в МГц
-                        }
-                    }
-                }
-            }
-            
-            // Метод 3: Прямой запрос к реестру для максимальной совместимости
-            if let Ok(output) = Command::new("powershell")
-                .args(["-Command", 
-                    "try { $currSpeed = Get-ItemProperty 'HKLM:\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0' | Select-Object -ExpandProperty ~MHz; $currSpeed / 1000.0 } catch { $null }"
-                ])
-                .output() 
-            {
-                if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    if let Ok(freq) = output_str.trim().parse::<f64>() {
-                        if freq > 0.1 {  // Валидное значение
-                            println!("[DEBUG] Метод 3: Текущая частота ЦП через реестр: {} ГГц", freq);
-                            return freq;
-                        }
-                    }
-                }
-            }
-            
-            // Метод 4: используем WMIC как более стабильный вариант
-            if let Ok(output) = Command::new("wmic")
-                .args(["cpu", "get", "CurrentClockSpeed"])
-                .output() 
-            {
-                if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    let lines: Vec<&str> = output_str.lines().collect();
-                    if lines.len() >= 2 {
-                        if let Ok(freq) = lines[1].trim().parse::<f64>() {
-                            println!("[DEBUG] Метод 4: Текущая частота ЦП через WMIC: {} ГГц", freq / 1000.0);
-                            return freq / 1000.0; // WMIC возвращает в МГц
-                        }
-                    }
-                }
-            }
-            
-            // Резервный метод: возвращаем максимальную частоту как приближение
-            println!("[DEBUG] Не удалось получить текущую частоту, возвращаем базовую частоту");
-            get_base_cpu_frequency()
-        });
-        
-        // Ждем результат с таймаутом
-        match guard.join() {
-            Ok(freq) => freq,
-            Err(_) => {
-                println!("[ERROR] Таймаут получения данных о частоте ЦП");
-                // Возвращаем данные из sysinfo, если ничего другого не сработало
-                let mut sys = System::new_all();
-                sys.refresh_cpu();
-                let freq = sys.cpus().first().map_or(0.0, |f| f.frequency() as f64 / 1000.0);
-                println!("[DEBUG] Резервный метод: Текущая частота ЦП через sysinfo: {} ГГц", freq);
-                freq
-            }
-        }
-    }
-    
-    #[cfg(target_os = "linux")]
-    {
-        // Улучшенный метод для Linux с большим количеством альтернатив
-        let guard = std::thread::spawn(|| {
-            // Метод 1: Более надежное чтение из scaling_cur_freq
-            if let Ok(output) = Command::new("sh")
-                .args(["-c", "cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null | head -1"])
-                .output() 
-            {
-                if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    if !output_str.trim().is_empty() {
-                        if let Ok(freq) = output_str.trim().parse::<f64>() {
-                            let freq_ghz = freq / 1000000.0; // Конвертируем из Гц в ГГц
-                            println!("[DEBUG] Метод 1: Текущая частота ЦП: {} ГГц", freq_ghz);
-                            return freq_ghz;
-                        }
-                    }
-                }
-            }
-            
-            // Метод 2: Чтение через cpuinfo
-            if let Ok(output) = Command::new("sh")
-                .args(["-c", "grep -i 'cpu MHz' /proc/cpuinfo | head -1 | awk '{print $4}'"])
-                .output() 
-            {
-                if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    if !output_str.trim().is_empty() {
-                        if let Ok(freq) = output_str.trim().parse::<f64>() {
-                            // Конвертируем из МГц в ГГц
-                            let freq_ghz = freq / 1000.0;
-                            println!("[DEBUG] Метод 2: Текущая частота ЦП: {} ГГц", freq_ghz);
-                            return freq_ghz;
-                        }
-                    }
-                }
-            }
-            
-            // Метод 3: Использование lscpu
-            if let Ok(output) = Command::new("sh")
-                .args(["-c", "lscpu | grep -i 'CPU MHz' | awk '{print $3}'"])
-                .output() 
-            {
-                if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    if !output_str.trim().is_empty() {
-                        if let Ok(freq) = output_str.trim().parse::<f64>() {
-                            // Конвертируем из МГц в ГГц
-                            let freq_ghz = freq / 1000.0;
-                            println!("[DEBUG] Метод 3: Текущая частота ЦП через lscpu: {} ГГц", freq_ghz);
-                            return freq_ghz;
-                        }
-                    }
-                }
-            }
-            
-            // Резервный метод: возвращаем максимальную частоту как приближение
-            println!("[DEBUG] Не удалось получить текущую частоту, возвращаем базовую частоту");
-            get_base_cpu_frequency()
-        });
-        
-        match guard.join() {
-            Ok(freq) => freq,
-            Err(_) => {
-                println!("[ERROR] Таймаут получения данных о частоте ЦП");
-                let mut sys = System::new_all();
-                sys.refresh_cpu();
-                if let Some(cpu) = sys.cpus().first() {
-                    let freq = cpu.frequency() as f64 / 1000.0;
-                    println!("[DEBUG] Резервный метод: Текущая частота ЦП через sysinfo: {} ГГц", freq);
-                    freq
-                } else {
-                    0.0
-                }
-            }
-        }
-    }
-    
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-    {
-        // Резервный метод для других ОС
-        let mut sys = System::new_all();
-        sys.refresh_cpu();
-        let freq = sys.cpus().first().map_or(0.0, |f| f.frequency() as f64 / 1000.0);
-        println!("[DEBUG] Текущая частота ЦП через sysinfo: {} ГГц", freq);
-        freq
-    }
-}
-
-// Функция для получения базовой частоты процессора (в ГГц)
-fn get_base_cpu_frequency() -> f64 {
-    #[cfg(target_os = "windows")]
-    {
-        // Получаем базовую частоту через WMI
-        if let Ok(output) = Command::new("powershell")
-            .args(["-Command", "(Get-CimInstance -ClassName Win32_Processor).MaxClockSpeed / 1000"])
-            .output() 
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                if let Ok(freq) = output_str.trim().parse::<f64>() {
-                    println!("[DEBUG] Базовая частота ЦП: {} ГГц", freq);
-                    return freq;
-                }
-            }
-        }
-    }
-    
-    #[cfg(target_os = "linux")]
-    {
-        // На Linux можно попробовать прочитать из специальных файлов или через lscpu
-        if let Ok(output) = Command::new("sh")
-            .args(["-c", "lscpu | grep 'CPU MHz' | awk '{print $3}'"])
-            .output() 
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                if let Ok(freq) = output_str.trim().parse::<f64>() {
-                    // Конвертируем из МГц в ГГц
-                    let freq_ghz = freq / 1000.0;
-                    println!("[DEBUG] Базовая частота ЦП: {} ГГц", freq_ghz);
-                    return freq_ghz;
-                }
-            }
-        }
-    }
-    
-    // Возвращаем 0.0, если не смогли определить
-    0.0
 }
 
 // Более детальная информация о памяти, только для Windows

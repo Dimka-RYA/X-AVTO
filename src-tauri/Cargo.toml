@@ -1,8 +1,10 @@
 [package]
-name = "xadmin"
-version = "0.1.0"
-description = "Tauri App"
+name = "x-avto"
+version = "0.0.0"
+description = "X-Avto System Monitor"
 authors = ["you"]
+license = ""
+repository = ""
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -28,5 +30,20 @@ portable-pty = "0.9.0"
 rusqlite = { version = "0.30.0", features = ["bundled"] }
 chrono = "0.4"
 sysinfo = "0.30.7"
-winapi = { version = "0.3", features = ["winuser", "wincon", "processenv", "fileapi", "handleapi", "namedpipeapi"] }
+winapi = { version = "0.3", features = ["winuser", "wincon", "processenv", "fileapi", "handleapi", "namedpipeapi", "pdh", "sysinfoapi", "processthreadsapi", "winnt"] }
 lazy_static = "1.5.0"
+diesel = { version = "2.1.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+diesel_migrations = "2.1.0"
+raw-cpuid = "11.0.1"
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort" # Strip expensive panic clean-up logic
+codegen-units = 1 # Compile crates one after another so the compiler can optimize better
+lto = true # Enables link to optimizations
+opt-level = "s" # Optimize for binary size
+# strip = true  # Automatically strip symbols from the binary.
