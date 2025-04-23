@@ -76,7 +76,72 @@ lazy_static! {
     static ref CPU_LOGICAL_CORES: Mutex<usize> = Mutex::new(0);
 }
 
-/// Получает текущую частоту процессора в ГГц на основе нагрузки из Windows Management
+/// Функция для получения загрузки CPU через sysinfo
+fn get_sysinfo_cpu_load() -> f64 {
+    let mut sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
+    // Первое считывание (может быть неточным)
+    sys.refresh_cpu();
+    
+    // Необходимо дать время на сбор данных между измерениями
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    
+    // Второе считывание для более точных данных
+    sys.refresh_cpu();
+    
+    let cpu_count = sys.cpus().len() as f32;
+    if cpu_count > 0.0 {
+        // Собираем нагрузку со всех ядер и вычисляем среднее
+        let load = sys.cpus().iter().map(|p| p.cpu_usage()).sum::<f32>() / cpu_count;
+        
+        // Ограничиваем значение диапазоном 0-100
+        let load = load.max(0.0).min(100.0);
+        
+        println!("[DEBUG] Нагрузка CPU (sysinfo): {}%", load);
+        return load as f64;
+    }
+    
+    0.0
+}
+
+/// Получает частоту CPU через sysinfo
+/// Возвращает значение в ГГц (например, 3.5 для 3.5 ГГц)
+fn get_sysinfo_cpu_frequency() -> Option<f64> {
+    let mut sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
+    sys.refresh_cpu();
+    
+    // Получаем базовую и максимальную частоты для проверки
+    let base_freq = get_base_cpu_frequency();
+    let max_freq = get_max_cpu_frequency();
+    
+    // В sysinfo частота обычно доступна через .frequency() метод для процессоров
+    // Однако в разных версиях и на разных системах она может быть недоступной
+    
+    let frequencies: Vec<u64> = sys.cpus().iter()
+        .map(|cpu| cpu.frequency())
+        .collect();
+    
+    // Проверка, если частоты доступны
+    if !frequencies.is_empty() && frequencies.iter().any(|&f| f > 0) {
+        // Отфильтровываем нулевые значения и считаем среднее
+        let valid_freqs: Vec<u64> = frequencies.into_iter().filter(|&f| f > 0).collect();
+        if !valid_freqs.is_empty() {
+            let avg_freq = valid_freqs.iter().sum::<u64>() as f64 / valid_freqs.len() as f64;
+            
+            // sysinfo возвращает частоту в МГц, переводим в ГГц
+            let freq_ghz = avg_freq / 1000.0;
+            
+            // Проверка на разумность значения
+            if freq_ghz >= 0.5 && freq_ghz <= max_freq * 1.2 {
+                println!("[DEBUG] Частота CPU из sysinfo: {} ГГц (из {} ядер)", freq_ghz, valid_freqs.len());
+                return Some(freq_ghz);
+            }
+        }
+    }
+    
+    None
+}
+
+/// Получает текущую частоту процессора в ГГц, полностью используя sysinfo
 /// Возвращает значение в ГГц (например, 3.5 для 3.5 ГГц)
 pub fn get_current_cpu_frequency() -> f64 {
     // Инициализация информации о процессоре, если это первый запуск
@@ -86,78 +151,28 @@ pub fn get_current_cpu_frequency() -> f64 {
     let base_freq = get_base_cpu_frequency();
     let max_freq = get_max_cpu_frequency();
     
-    // Получение нагрузки процессора через WMI - как в интерфейсе
-    #[cfg(target_os = "windows")]
-    {
-        // Запрашиваем текущую нагрузку через WMI - точно так же, как это делает UI
-        if let Ok(output) = Command::new("powershell")
-            .args(["-NoProfile", "-Command", "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty LoadPercentage"])
-            .output() 
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                if let Ok(load_percentage) = output_str.trim().parse::<f64>() {
-                    // Точно такое же значение нагрузки отображается в интерфейсе
-                    
-                    // Прямая линейная зависимость между нагрузкой и частотой
-                    let target_freq = base_freq + (max_freq - base_freq) * (load_percentage / 100.0);
-                    
-                    // Добавляем в историю для сглаживания
-                    let mut history = FREQUENCY_HISTORY.lock().unwrap();
-                    if history.len() >= 10 {
-                        history.pop_front();
-                    }
-                    history.push_back(target_freq);
-                    
-                    // Вычисляем среднее для сглаживания
-                    let smoothed_freq = history.iter().sum::<f64>() / history.len() as f64;
-                    
-                    // Выводим отладочную информацию с WMI-нагрузкой, которая совпадает с UI
-                    println!("[DEBUG] Частота CPU (WMI-нагрузка): {} ГГц, Нагрузка WMI: {}%, База: {} ГГц, Макс: {} ГГц", 
-                            smoothed_freq, load_percentage, base_freq, max_freq);
-                    
-                    // Обновляем последнее значение
-                    *LAST_FREQUENCY.lock().unwrap() = smoothed_freq;
-                    
-                    return smoothed_freq;
-                }
-            }
-        }
-    }
+    // Получение текущей нагрузки через sysinfo
+    let cpu_load = get_sysinfo_cpu_load();
     
-    // Запасной вариант, если WMI не сработал (или это не Windows)
-    let mut sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
-    sys.refresh_cpu();
-    
-    // Вычисляем среднюю нагрузку
-    let cpu_count = sys.cpus().len() as f32;
-    let cpu_load = if cpu_count > 0.0 {
-        sys.cpus().iter().map(|p| p.cpu_usage()).sum::<f32>() / cpu_count
-    } else {
-        0.0
-    };
-    
-    // Преобразуем загрузку в диапазон от 0.0 до 1.0
-    let load_factor = (cpu_load / 100.0) as f64;
-    
-    // Прямая линейная зависимость
-    let target_freq = base_freq + (max_freq - base_freq) * load_factor;
+    // Считаем частоту по нагрузке из sysinfo
+    let current_freq = get_cpu_frequency_from_sysinfo();
     
     // Добавляем в историю для сглаживания
     let mut history = FREQUENCY_HISTORY.lock().unwrap();
     if history.len() >= 10 {
         history.pop_front();
     }
-    history.push_back(target_freq);
+    history.push_back(current_freq);
     
     // Вычисляем среднее для сглаживания
     let smoothed_freq = history.iter().sum::<f64>() / history.len() as f64;
     
-    // Выводим отладочную информацию
-    println!("[DEBUG] Частота CPU (запасной метод): {} ГГц, Нагрузка: {}%, База: {} ГГц, Макс: {} ГГц", 
-            smoothed_freq, cpu_load, base_freq, max_freq);
-    
     // Обновляем последнее значение
     *LAST_FREQUENCY.lock().unwrap() = smoothed_freq;
+    
+    // Выводим отладочную информацию
+    println!("[DEBUG] Частота CPU: {} ГГц, Нагрузка: {}%, База: {} ГГц, Макс: {} ГГц", 
+            smoothed_freq, cpu_load, base_freq, max_freq);
     
     smoothed_freq
 }
@@ -528,31 +543,40 @@ fn get_p_core_count() -> usize {
 /// Получает частоту процессора из системной информации
 /// Это не очень точный метод, но может использоваться как резервный
 pub fn get_cpu_frequency_from_sysinfo() -> f64 {
-    let mut sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
-    sys.refresh_cpu();
-    
+    // Получаем базовую и максимальную частоты для расчетов
     let base_freq = get_base_cpu_frequency();
     let max_freq = get_max_cpu_frequency();
     
-    // Вычисляем среднюю нагрузку на CPU
-    let cpu_count = sys.cpus().len() as f32;
-    let cpu_load = if cpu_count > 0.0 {
-        sys.cpus().iter().map(|p| p.cpu_usage()).sum::<f32>() / cpu_count
+    // Получаем нагрузку CPU
+    let cpu_load = get_sysinfo_cpu_load();
+    
+    // Минимальная частота обычно составляет 60-70% от базовой
+    let min_freq = base_freq * 0.65;
+    
+    // Доработанная нелинейная зависимость частоты от нагрузки
+    let current_freq = if cpu_load < 1.0 {
+        // При почти нулевой нагрузке - минимальная частота
+        min_freq
+    } else if cpu_load < 5.0 {
+        // 1-5% нагрузки - плавный переход от минимальной к базовой
+        min_freq + (base_freq - min_freq) * ((cpu_load - 1.0) / 4.0)
+    } else if cpu_load < 20.0 {
+        // 5-20% нагрузки - частота около базовой
+        base_freq * (0.95 + (cpu_load - 5.0) / 300.0)
+    } else if cpu_load < 50.0 {
+        // 20-50% нагрузки - начало турбо-режима
+        base_freq + (max_freq - base_freq) * ((cpu_load - 20.0) / 30.0) * 0.5
     } else {
-        0.0
+        // 50-100% нагрузки - рост до максимальной частоты
+        let boost_factor = (cpu_load - 50.0) / 50.0;
+        base_freq + (max_freq - base_freq) * (0.5 + 0.5 * boost_factor)
     };
     
-    // Преобразуем загрузку в диапазон от 0.0 до 1.0
-    let load_factor = (cpu_load / 100.0) as f64;
+    // Проверяем на разумность полученного значения
+    let result = current_freq.max(min_freq).min(max_freq);
     
-    // Нелинейная зависимость частоты от нагрузки
-    let freq_range = max_freq - base_freq;
+    println!("[DEBUG] get_cpu_frequency_from_sysinfo: Нагрузка: {}%, Частота: {} ГГц", 
+           cpu_load, result);
     
-    if load_factor < 0.2 {
-        base_freq + freq_range * 0.2 * load_factor
-    } else if load_factor < 0.7 {
-        base_freq + freq_range * 0.2 + freq_range * 0.6 * ((load_factor - 0.2) / 0.5)
-    } else {
-        base_freq + freq_range * 0.8 + freq_range * 0.2 * ((load_factor - 0.7) / 0.3)
-    }
+    result
 } 
