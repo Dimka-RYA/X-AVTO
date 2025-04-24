@@ -1,138 +1,163 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import '../RequestsTab.css';
 
 interface WebSocketPanelProps {
-  onSendRequest: () => void;
+  onSendRequest: (request: string) => void;
 }
 
-type WSTabType = 'params' | 'auth' | 'headers';
-type ResultTabType = 'body' | 'logs';
-
 export const WebSocketPanel: React.FC<WebSocketPanelProps> = ({ onSendRequest }) => {
-  const [wsUrl, setWsUrl] = useState<string>('ws://localhost:8080');
+  const [wsUrl, setWsUrl] = useState<string>('ws://echo.websocket.org');
   const [message, setMessage] = useState<string>('');
   const [isConnected, setIsConnected] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<WSTabType>('params');
-  const [activeResultTab, setActiveResultTab] = useState<ResultTabType>('logs');
+  const [messages, setMessages] = useState<Array<{text: string, sent: boolean}>>([]);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   
+  const socketRef = useRef<WebSocket | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Автоматическая прокрутка при добавлении новых сообщений
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+
+  // Очистка при размонтировании компонента
+  useEffect(() => {
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+    };
+  }, []);
+
+  const handleConnect = () => {
+    if (isConnected && socketRef.current) {
+      // Отключение от WebSocket
+      socketRef.current.close();
+      socketRef.current = null;
+      setIsConnected(false);
+      setConnectionError(null);
+      return;
+    }
+
+    if (!wsUrl) {
+      setConnectionError('Пожалуйста, введите URL WebSocket');
+      return;
+    }
+
+    try {
+      // Создаем новое соединение
+      const socket = new WebSocket(wsUrl);
+      socketRef.current = socket;
+
+      // Обработка событий
+      socket.onopen = () => {
+        setIsConnected(true);
+        setConnectionError(null);
+        setMessages(prev => [...prev, { text: 'Соединение установлено', sent: false }]);
+      };
+
+      socket.onmessage = (event) => {
+        const message = event.data;
+        setMessages(prev => [...prev, { text: message, sent: false }]);
+        onSendRequest(`Received: ${message}`);
+      };
+
+      socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setConnectionError('Ошибка соединения');
+      };
+
+      socket.onclose = (event) => {
+        setIsConnected(false);
+        if (event.wasClean) {
+          setMessages(prev => [...prev, { text: `Соединение закрыто корректно, код: ${event.code}`, sent: false }]);
+        } else {
+          setMessages(prev => [...prev, { text: `Соединение прервано, код: ${event.code}`, sent: false }]);
+        }
+      };
+    } catch (error) {
+      console.error('WebSocket connection error:', error);
+      setConnectionError(`Ошибка подключения: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const handleSendMessage = () => {
+    if (!socketRef.current || !message.trim()) return;
+
+    try {
+      socketRef.current.send(message);
+      setMessages(prev => [...prev, { text: message, sent: true }]);
+      setMessage(''); // Очищаем поле ввода
+    } catch (error) {
+      console.error('Error sending message:', error);
+      setConnectionError(`Ошибка отправки: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
   return (
-    <div className="protocol-panel">
+    <div className="websocket-panel">
       <div className="request-controls">
         <input 
           type="text"
           className="url-input"
-          placeholder="WebSocket URL"
+          placeholder="WebSocket URL (например, ws://echo.websocket.org)"
           value={wsUrl}
           onChange={(e) => setWsUrl(e.target.value)}
+          disabled={isConnected}
         />
         <button 
-          className="connection-button"
-          onClick={() => setIsConnected(!isConnected)}
+          className={`connection-button ${isConnected ? 'disconnect' : 'connect'}`}
+          onClick={handleConnect}
         >
           {isConnected ? 'Отключиться' : 'Подключиться'}
         </button>
       </div>
+
+      {connectionError && (
+        <div className="error-message">{connectionError}</div>
+      )}
+
+      <div className="messages-container">
+        <div className="messages-list">
+          {messages.map((msg, index) => (
+            <div 
+              key={index} 
+              className={`message-item ${msg.sent ? 'sent' : 'received'}`}
+            >
+              <span className="message-label">{msg.sent ? 'Sent: ' : 'Received: '}</span>
+              <span className="message-text">{msg.text}</span>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+      </div>
       
       <div className="message-controls">
-        <input 
-          type="text"
+        <textarea 
           className="message-input"
-          placeholder="Введите сообщение"
+          placeholder="Введите сообщение для отправки"
           value={message}
           onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={handleKeyDown}
           disabled={!isConnected}
+          rows={3}
         />
         <button 
           className="send-button"
-          onClick={onSendRequest}
-          disabled={!isConnected}
+          onClick={handleSendMessage}
+          disabled={!isConnected || !message.trim()}
         >
           Отправить
         </button>
-      </div>
-
-      <div className="panels-container">
-        {/* Левая панель с вкладками параметров */}
-        <div className="left-panel">
-          <div className="tabs-selector">
-            <button 
-              className={`tab-btn ${activeTab === 'params' ? 'active' : ''}`}
-              onClick={() => setActiveTab('params')}
-            >
-              Параметры
-            </button>
-            <button 
-              className={`tab-btn ${activeTab === 'auth' ? 'active' : ''}`}
-              onClick={() => setActiveTab('auth')}
-            >
-              Авторизация
-            </button>
-            <button 
-              className={`tab-btn ${activeTab === 'headers' ? 'active' : ''}`}
-              onClick={() => setActiveTab('headers')}
-            >
-              Заголовки
-            </button>
-          </div>
-          <div className="tab-content">
-            {activeTab === 'params' && (
-              <div>
-                {/* Содержимое вкладки параметров */}
-                <p>Параметры подключения WebSocket</p>
-              </div>
-            )}
-            {activeTab === 'auth' && (
-              <div>
-                {/* Содержимое вкладки авторизации */}
-                <p>Настройки авторизации WebSocket</p>
-              </div>
-            )}
-            {activeTab === 'headers' && (
-              <div>
-                {/* Содержимое вкладки заголовков */}
-                <p>Заголовки для WebSocket</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Правая панель с логами WebSocket */}
-        <div className="right-panel">
-          <div className="result-header">
-            <button 
-              className={`result-tab-btn ${activeResultTab === 'body' ? 'active' : ''}`}
-              onClick={() => setActiveResultTab('body')}
-            >
-              Сообщения
-            </button>
-            <button 
-              className={`result-tab-btn ${activeResultTab === 'logs' ? 'active' : ''}`}
-              onClick={() => setActiveResultTab('logs')}
-            >
-              Логи
-            </button>
-            <div className="status-info">
-              <span className={`status-code ${isConnected ? 'connected' : 'disconnected'}`}>
-                {isConnected ? 'Подключено' : 'Отключено'}
-              </span>
-            </div>
-          </div>
-          <div className="result-content">
-            {activeResultTab === 'body' && (
-              <div className="websocket-messages">
-                <p>Здесь будут отображаться отправленные и полученные сообщения</p>
-              </div>
-            )}
-            {activeResultTab === 'logs' && (
-              <div className="websocket-logs">
-                <pre>
-                  [13:45:22] Attempting to connect to ws://localhost:8080{'\n'}
-                  [13:45:23] Connection failed: Could not connect to the server.{'\n'}
-                </pre>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import '../RequestsTab.css';
 
 interface SocketIOPanelProps {
-  onSendRequest: () => void;
+  onSendRequest: (request?: string) => void;
 }
 
 export const SocketIOPanel: React.FC<SocketIOPanelProps> = ({ onSendRequest }) => {
@@ -12,7 +12,7 @@ export const SocketIOPanel: React.FC<SocketIOPanelProps> = ({ onSendRequest }) =
   const [isConnected, setIsConnected] = useState<boolean>(false);
   
   return (
-    <div className="protocol-panel">
+    <>
       <div className="request-controls">
         <input 
           type="text"
@@ -47,12 +47,12 @@ export const SocketIOPanel: React.FC<SocketIOPanelProps> = ({ onSendRequest }) =
         />
         <button 
           className="send-button"
-          onClick={onSendRequest}
+          onClick={() => onSendRequest(payload)}
           disabled={!isConnected}
         >
           Отправить
         </button>
       </div>
-    </div>
+    </>
   );
 }; 
