@@ -507,17 +507,104 @@ fn initialize_cpu_info_if_needed() {
 
 /// Получает базовую частоту процессора
 pub fn get_base_cpu_frequency() -> f64 {
-    // Инициализируем при необходимости
-    if CPU_BASE_FREQUENCY.lock().unwrap().is_none() {
-        initialize_cpu_info_if_needed();
+    let mut base_frequency = 0.0;
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Метод 1: через WMI с прямым запросом в cmd (самый быстрый)
+        if let Ok(output) = std::process::Command::new("cmd")
+            .args(["/c", "wmic cpu get CurrentClockSpeed,MaxClockSpeed /format:list"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                for line in output_str.lines() {
+                    if line.starts_with("MaxClockSpeed=") {
+                        if let Ok(speed) = line.trim_start_matches("MaxClockSpeed=").trim().parse::<f64>() {
+                            // Преобразуем МГц в ГГц
+                            base_frequency = speed / 1000.0;
+                            println!("[CPU] Базовая частота из WMI (MaxClockSpeed): {} ГГц", base_frequency);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Метод 2: через системный реестр (если первый не сработал)
+        if base_frequency == 0.0 {
+            if let Ok(output) = std::process::Command::new("reg")
+                .args(["query", "HKLM\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", "/v", "~MHz"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    for line in output_str.lines() {
+                        if line.contains("~MHz") {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 3 {
+                                if let Ok(speed) = parts[parts.len()-1].trim().parse::<f64>() {
+                                    // Преобразуем МГц в ГГц
+                                    base_frequency = speed / 1000.0;
+                                    println!("[CPU] Базовая частота из реестра: {} ГГц", base_frequency);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Метод 3: через PowerShell (если предыдущие не сработали)
+        if base_frequency == 0.0 {
+            if let Ok(output) = std::process::Command::new("powershell")
+                .args(["-Command", "Get-WmiObject -Class Win32_Processor | Select-Object -ExpandProperty MaxClockSpeed"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(speed) = output_str.trim().parse::<f64>() {
+                        // Преобразуем МГц в ГГц
+                        base_frequency = speed / 1000.0;
+                        println!("[CPU] Базовая частота из PowerShell: {} ГГц", base_frequency);
+                    }
+                }
+            }
+        }
     }
     
-    // Возвращаем кэшированное значение или определяем заново
-    CPU_BASE_FREQUENCY.lock().unwrap().unwrap_or_else(|| {
-        let (base_freq, _) = get_cpu_info_from_cpuid();
-        *CPU_BASE_FREQUENCY.lock().unwrap() = Some(base_freq);
-        base_freq
-    })
+    // Если все методы не сработали или мы на другой ОС
+    if base_frequency == 0.0 {
+        base_frequency = match std::env::consts::OS {
+            "windows" => 3.4, // Примерное значение для Windows
+            "linux" => {
+                // На Linux читаем из /proc/cpuinfo
+                if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+                    let mut max_freq = 0.0;
+                    for line in cpuinfo.lines() {
+                        if line.starts_with("cpu MHz") {
+                            if let Some(value) = line.split(':').nth(1) {
+                                if let Ok(freq) = value.trim().parse::<f64>() {
+                                    if freq > max_freq {
+                                        max_freq = freq;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if max_freq > 0.0 {
+                        max_freq / 1000.0 // Преобразуем МГц в ГГц
+                    } else {
+                        2.0 // Заглушка для Linux
+                    }
+                } else {
+                    2.0 // Заглушка для Linux
+                }
+            },
+            _ => 2.0, // Заглушка для других ОС
+        };
+        println!("[CPU] Базовая частота из заглушки: {} ГГц", base_frequency);
+    }
+    
+    base_frequency
 }
 
 /// Получает максимальную частоту процессора
@@ -616,205 +703,123 @@ pub fn get_cpu_frequency_from_sysinfo() -> f64 {
 
 /// Получает количество физических ядер процессора
 pub fn get_cpu_physical_cores() -> usize {
-    // Инициализируем информацию о процессоре, если это первый запуск
-    initialize_cpu_info_if_needed();
-    
-    // Сначала проверяем модель процессора на i5-13400
-    let cpu_model = CPU_MODEL.lock().unwrap().clone();
-    if cpu_model.contains("i5-13400") {
-        return 10; // Принудительно возвращаем 10 ядер для i5-13400
-    }
-    
-    // Пробуем получить количество ядер из кэша
-    let cores = *CPU_PHYSICAL_CORES.lock().unwrap();
-    if cores > 0 {
-        return cores;
-    }
-    
-    // Остальные проверки для других моделей процессоров...
-    // Код для других процессоров остается прежним
-    
-    // Для Windows используем WMI запрос для точного определения числа ядер
     #[cfg(target_os = "windows")]
     {
-        let commands = [
-            // Попытка #1: Используем более точную команду для определения ядер
-            "try { (Get-CimInstance -ClassName Win32_Processor).NumberOfCores } catch { 0 }",
-            // Попытка #2: Альтернативный подход через WMI
-            "try { (Get-WmiObject -Class Win32_Processor).NumberOfCores } catch { 0 }",
-            // Попытка #3: Используем PowerShell 7+ команду
-            "try { (Get-CimInstance -ClassName CIM_Processor).NumberOfEnabledCores } catch { 0 }"
-        ];
-        
-        for cmd in commands {
-            if let Ok(output) = Command::new("powershell")
-                .args(["-NoProfile", "-Command", cmd])
-                .output() 
-            {
-                if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    if let Ok(num_cores) = output_str.trim().parse::<usize>() {
-                        if num_cores > 0 {
-                            // Особая проверка для i5-13400, где WMI может возвращать некорректное значение
-                            if cpu_model.contains("i5-13400") {
-                                *CPU_PHYSICAL_CORES.lock().unwrap() = 10;
-                                return 10;
-                            }
-                            
-                            *CPU_PHYSICAL_CORES.lock().unwrap() = num_cores;
-                            return num_cores;
+        // Метод 1: через WMI напрямую через cmd
+        if let Ok(output) = std::process::Command::new("cmd")
+            .args(["/c", "wmic cpu get NumberOfCores /format:list"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                for line in output_str.lines() {
+                    if line.starts_with("NumberOfCores=") {
+                        if let Ok(cores) = line.trim_start_matches("NumberOfCores=").trim().parse::<usize>() {
+                            println!("[CPU] Физические ядра из WMI: {}", cores);
+                            return cores;
                         }
                     }
                 }
             }
         }
-    }
-    
-    // Пробуем получить через sysinfo
-    let sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
-    if let Some(physical_cores) = sys.physical_core_count() {
-        if physical_cores > 0 {
-            // Особая проверка для i5-13400
-            if cpu_model.contains("i5-13400") {
-                *CPU_PHYSICAL_CORES.lock().unwrap() = 10;
-                return 10;
-            }
-            
-            *CPU_PHYSICAL_CORES.lock().unwrap() = physical_cores;
-            return physical_cores;
-        }
-    }
-    
-    // Определяем количество ядер по модели процессора
-    if cpu_model.contains("Intel") {
-        if cpu_model.contains("13th Gen") || cpu_model.contains("i5-13") {
-            // 13-е поколение i5 обычно имеет 6P+4E или 6P+0E ядер
-            if cpu_model.contains("13400") || cpu_model.contains("13500") {
-                *CPU_PHYSICAL_CORES.lock().unwrap() = 10;
-                return 10;
-            } else if cpu_model.contains("13600") {
-                *CPU_PHYSICAL_CORES.lock().unwrap() = 14; // 6P+8E
-                return 14;
+        
+        // Метод 2: через системную информацию
+        if let Ok(output) = std::process::Command::new("cmd")
+            .args(["/c", "echo %NUMBER_OF_PROCESSORS%"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(cores) = output_str.trim().parse::<usize>() {
+                    println!("[CPU] Ядра через NUMBER_OF_PROCESSORS: {}", cores);
+                    // Обычно NUMBER_OF_PROCESSORS дает число логических ядер, делим на 2 если > 1
+                    if cores > 1 {
+                        return cores / 2;
+                    }
+                    return cores;
+                }
             }
         }
+        
+        // Метод 3: через sysinfo
+        if let Ok(cores) = std::thread::available_parallelism() {
+            let physical_cores = cores.get() / 2;
+            if physical_cores > 0 {
+                println!("[CPU] Физические ядра через available_parallelism: {}", physical_cores);
+                return physical_cores;
+            }
+        }
+        
+        // Заглушка, если не смогли получить
+        println!("[CPU] Используем заглушку: 4 физических ядра");
+        return 4; // Типичное значение как заглушка
     }
     
-    // Если всё еще не удалось определить, оцениваем по количеству логических ядер
-    let logical_cores = get_cpu_logical_cores();
-    let estimated_cores = if logical_cores % 2 == 0 {
-        logical_cores / 2 // Предполагаем SMT/HT для большинства процессоров
-    } else {
-        logical_cores // Необычный случай, возможно некоторые ядра без HT
-    };
-    
-    *CPU_PHYSICAL_CORES.lock().unwrap() = estimated_cores;
-    estimated_cores
+    #[cfg(not(target_os = "windows"))]
+    {
+        // На других ОС используем std::thread::available_parallelism() и делим на 2
+        // так как обычно это количество логических ядер
+        if let Ok(cores) = std::thread::available_parallelism() {
+            let physical_cores = cores.get() / 2;
+            if physical_cores > 0 {
+                return physical_cores;
+            }
+        }
+        return 2; // Заглушка
+    }
 }
 
 /// Получает количество логических процессоров (потоков) процессора
 pub fn get_cpu_logical_cores() -> usize {
-    // Инициализируем информацию о процессоре, если это первый запуск
-    initialize_cpu_info_if_needed();
-    
-    // Сначала проверяем модель процессора на i5-13400
-    let cpu_model = CPU_MODEL.lock().unwrap().clone();
-    if cpu_model.contains("i5-13400") {
-        return 16; // Принудительно возвращаем 16 потоков для i5-13400
-    }
-    
-    // Пробуем получить количество потоков из кэша
-    let cores = *CPU_LOGICAL_CORES.lock().unwrap();
-    if cores > 0 {
-        return cores;
-    }
-    
-    // Для Windows используем WMI запрос для точного определения числа логических ядер
     #[cfg(target_os = "windows")]
     {
-        let commands = [
-            // Попытка #1: Стандартный способ получения числа логических ядер
-            "try { (Get-CimInstance -ClassName Win32_Processor).NumberOfLogicalProcessors } catch { 0 }",
-            // Попытка #2: Альтернативный подход через WMI
-            "try { (Get-WmiObject -Class Win32_Processor).NumberOfLogicalProcessors } catch { 0 }",
-            // Попытка #3: Метод через Environment
-            "try { [Environment]::ProcessorCount } catch { 0 }"
-        ];
-        
-        for cmd in commands {
-            if let Ok(output) = Command::new("powershell")
-                .args(["-NoProfile", "-Command", cmd])
-                .output() 
-            {
-                if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    if let Ok(num_threads) = output_str.trim().parse::<usize>() {
-                        if num_threads > 0 {
-                            // Особая проверка для i5-13400
-                            if cpu_model.contains("i5-13400") {
-                                *CPU_LOGICAL_CORES.lock().unwrap() = 16;
-                                return 16;
-                            }
-                            
-                            *CPU_LOGICAL_CORES.lock().unwrap() = num_threads;
-                            return num_threads;
+        // Метод 1: через WMI напрямую через cmd
+        if let Ok(output) = std::process::Command::new("cmd")
+            .args(["/c", "wmic cpu get NumberOfLogicalProcessors /format:list"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                for line in output_str.lines() {
+                    if line.starts_with("NumberOfLogicalProcessors=") {
+                        if let Ok(cores) = line.trim_start_matches("NumberOfLogicalProcessors=").trim().parse::<usize>() {
+                            println!("[CPU] Логические ядра из WMI: {}", cores);
+                            return cores;
                         }
                     }
                 }
             }
         }
-    }
-    
-    // Пробуем получить через sysinfo
-    let sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
-    let logical_cores = sys.cpus().len();
-    if logical_cores > 0 {
-        // Особая проверка для i5-13400
-        if cpu_model.contains("i5-13400") {
-            *CPU_LOGICAL_CORES.lock().unwrap() = 16;
-            return 16;
-        }
         
-        *CPU_LOGICAL_CORES.lock().unwrap() = logical_cores;
-        return logical_cores;
-    }
-    
-    // Остальной код для других процессоров...
-    
-    // Используем num_cpus если доступен
-    #[cfg(feature = "num_cpus")]
-    {
-        let logical_cores = num_cpus::get();
-        
-        // Особая проверка для i5-13400
-        if cpu_model.contains("i5-13400") {
-            *CPU_LOGICAL_CORES.lock().unwrap() = 16;
-            return 16;
-        }
-        
-        *CPU_LOGICAL_CORES.lock().unwrap() = logical_cores;
-        return logical_cores;
-    }
-    
-    // Определяем по модели процессора, если другие методы не сработали
-    if cpu_model.contains("Intel") {
-        if cpu_model.contains("13th Gen") || cpu_model.contains("i5-13") {
-            if cpu_model.contains("13400") || cpu_model.contains("13500") {
-                *CPU_LOGICAL_CORES.lock().unwrap() = 16; // 6P(12T)+4E
-                return 16;
-            } else if cpu_model.contains("13600") {
-                *CPU_LOGICAL_CORES.lock().unwrap() = 20; // 6P(12T)+8E
-                return 20;
+        // Метод 2: через системную информацию
+        if let Ok(output) = std::process::Command::new("cmd")
+            .args(["/c", "echo %NUMBER_OF_PROCESSORS%"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(cores) = output_str.trim().parse::<usize>() {
+                    println!("[CPU] Логические ядра через NUMBER_OF_PROCESSORS: {}", cores);
+                    return cores;
+                }
             }
         }
+        
+        // Метод 3: через std::thread::available_parallelism()
+        if let Ok(cores) = std::thread::available_parallelism() {
+            println!("[CPU] Логические ядра через available_parallelism: {}", cores.get());
+            return cores.get();
+        }
+        
+        // Заглушка, если не смогли получить
+        println!("[CPU] Используем заглушку: 8 логических ядер");
+        return 8; // Типичное значение как заглушка
     }
     
-    // Запасной вариант
-    let default_cores = if get_cpu_physical_cores() > 0 {
-        get_cpu_physical_cores() * 2
-    } else {
-        8 // Разумное значение по умолчанию для современных систем
-    };
-    
-    *CPU_LOGICAL_CORES.lock().unwrap() = default_cores;
-    default_cores
+    #[cfg(not(target_os = "windows"))]
+    {
+        // На других ОС используем std::thread::available_parallelism()
+        if let Ok(cores) = std::thread::available_parallelism() {
+            return cores.get();
+        }
+        return 4; // Заглушка
+    }
 }
 
 /// Получает название модели процессора

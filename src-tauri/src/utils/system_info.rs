@@ -1,4 +1,4 @@
-﻿use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 use sysinfo::{System, Disks, Components};
 use std::collections::HashMap;
 use std::process::Command;
@@ -224,11 +224,14 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
     // Изначально устанавливаем мониторинг как неактивный
     MONITORING_ACTIVE.store(false, Ordering::SeqCst);
     
+    // Сразу обновляем статические данные CPU при запуске, не дожидаясь первого цикла
+    update_cpu_static_data(&cache.cpu);
+    println!("[SystemInfo] Выполнено начальное обновление статических данных CPU");
+    
     // Поток для обновления данных CPU (максимально частое обновление)
     let cpu_cache = cache.cpu.clone();
     let cpu_app_handle = app_handle.clone();
     thread::spawn(move || {
-        let mut update_count = 0;
         loop {
             // Проверяем активен ли мониторинг
             if is_monitoring_active() {
@@ -238,31 +241,39 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
                 // Отправляем событие обновления CPU
                 let cpu_data = cpu_cache.data.read().unwrap().clone();
                 let _ = cpu_app_handle.emit("cpu-info-updated", cpu_data);
-                
-                update_count += 1;
-                if update_count % 1000 == 0 {
-                    // Уменьшаем частоту отладочных сообщений
-                    println!("[SystemInfo] CPU данные обновлены {} раз", update_count);
-                }
             }
             
-            // Уменьшаем задержку для более частого обновления
-            thread::sleep(Duration::from_millis(5));
+            // Минимальная задержка для максимальной частоты обновления
+            thread::sleep(Duration::from_millis(1));
         }
     });
     
-    // Поток для обновления статических данных CPU (редкое обновление)
+    // Поток для обновления статических данных CPU (более частое обновление на старте)
     let cpu_static_cache = cache.cpu.clone();
     thread::spawn(move || {
+        // Первые несколько минут обновляем чаще для гарантии получения данных
+        let mut fast_updates = 5; // Количество быстрых обновлений
+        
         loop {
             // Проверяем активен ли мониторинг
             if is_monitoring_active() {
                 // Обновляем статические данные CPU (модель, архитектура, и т.д.)
                 update_cpu_static_data(&cpu_static_cache);
+                println!("[SystemInfo] Обновлены статические данные CPU");
+                
+                // Уменьшаем счетчик быстрых обновлений
+                if fast_updates > 0 {
+                    fast_updates -= 1;
+                    // Быстрое обновление каждые 10 секунд в начале
+                    thread::sleep(Duration::from_secs(10));
+                } else {
+                    // Эти данные редко меняются, обновляем раз в 5 минут после начальных обновлений
+                    thread::sleep(Duration::from_secs(300));
+                }
+            } else {
+                // Если мониторинг не активен, проверяем каждую секунду
+                thread::sleep(Duration::from_secs(1));
             }
-            
-            // Эти данные редко меняются, обновляем раз в 5 минут
-            thread::sleep(Duration::from_secs(300));
         }
     });
     
@@ -270,7 +281,6 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
     let memory_cache = cache.memory.clone();
     let memory_app_handle = app_handle.clone();
     thread::spawn(move || {
-        let mut update_count = 0;
         loop {
             // Проверяем активен ли мониторинг
             if is_monitoring_active() {
@@ -280,24 +290,17 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
                 // Отправляем событие обновления памяти
                 let memory_data = memory_cache.data.read().unwrap().clone();
                 let _ = memory_app_handle.emit("memory-info-updated", memory_data);
-                
-                update_count += 1;
-                if update_count % 1000 == 0 {
-                    // Уменьшаем частоту отладочных сообщений
-                    println!("[SystemInfo] Данные памяти обновлены {} раз", update_count);
-                }
             }
             
-            // Уменьшаем задержку для более частого обновления
-            thread::sleep(Duration::from_millis(5));
+            // Минимальная задержка для максимальной частоты обновления
+            thread::sleep(Duration::from_millis(1));
         }
     });
     
-    // Поток для обновления данных дисков (частое обновление)
+    // Поток для обновления данных дисков (увеличена частота)
     let disks_cache = cache.disk.clone();
     let disks_app_handle = app_handle.clone();
     thread::spawn(move || {
-        let mut update_count = 0;
         loop {
             // Проверяем активен ли мониторинг
             if is_monitoring_active() {
@@ -307,15 +310,10 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
                 // Отправляем событие обновления дисков
                 let disks_data = disks_cache.data.read().unwrap().clone();
                 let _ = disks_app_handle.emit("disks-info-updated", disks_data);
-                
-                update_count += 1;
-                if update_count % 100 == 0 {
-                    println!("[SystemInfo] Данные дисков обновлены {} раз", update_count);
-                }
             }
             
-            // Диски обновляем раз в секунду, частые обновления не нужны
-            thread::sleep(Duration::from_secs(1));
+            // Уменьшаем интервал обновления дисков до 100мс для более частых обновлений
+            thread::sleep(Duration::from_millis(100));
         }
     });
     
@@ -323,7 +321,6 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
     let main_cache = cache.clone();
     let main_app_handle = app_handle.clone();
     thread::spawn(move || {
-        let mut update_count = 0;
         loop {
             // Проверяем активен ли мониторинг
             if is_monitoring_active() {
@@ -338,16 +335,10 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
                 
                 // Отправляем событие с полной системной информацией
                 let _ = main_app_handle.emit("system-info-updated", system_info);
-                
-                update_count += 1;
-                if update_count % 1000 == 0 {
-                    // Уменьшаем частоту отладочных сообщений
-                    println!("[SystemInfo] Полная системная информация обновлена {} раз", update_count);
-                }
             }
             
-            // Уменьшаем задержку для более частого обновления
-            thread::sleep(Duration::from_millis(5));
+            // Минимальная задержка для максимальной частоты обновления
+            thread::sleep(Duration::from_millis(500));
         }
     });
     
@@ -375,16 +366,16 @@ pub fn get_system_info(cache: tauri::State<'_, Arc<SystemInfoCache>>) -> SystemI
     cache.get_system_info()
 }
 
-// Функция для обновления динамических данных CPU - без задержек
+// Функция для обновления динамических данных CPU - оптимизированная версия
 fn update_cpu_dynamic_data(cache: &CpuCache) {
     // Проверяем активен ли мониторинг, если нет - не обновляем
     if !is_monitoring_active() {
         return;
     }
 
-    // Получаем данные о ЦП через оптимизированную функцию
+    // Оптимизируем получение данных о CPU - используем один экземпляр System
     let mut sys = System::new_all();
-    sys.refresh_cpu(); // Оптимизируем только обновление CPU
+    sys.refresh_cpu(); // Обновляем только CPU, а не все данные
     
     // Вычисляем среднюю нагрузку ЦП
     let cpu_count = sys.cpus().len() as f32;
@@ -394,44 +385,36 @@ fn update_cpu_dynamic_data(cache: &CpuCache) {
         0.0
     };
     
-    // Получаем текущую частоту процессора из отдельного модуля
+    // Получаем текущую частоту процессора
     let frequency = get_current_cpu_frequency();
     
-    // Получаем температуру процессора (редко и только если было последнее обновление давно)
+    // Получаем температуру процессора, но реже (каждые 5 секунд)
     let temp;
     {
         let last_update = cache.last_update.read().unwrap();
         if last_update.elapsed() > Duration::from_secs(5) {
             temp = get_cpu_temperature();
         } else {
-            // Используем закэшированное значение
             let data = cache.data.read().unwrap();
             temp = data.temperature;
         }
     }
     
-    // Обновляем информацию о процессах, потоках и дескрипторах при каждом обновлении CPU
-    // Убираем счётчик и кэширование для максимальной частоты обновления
-    let process_info = get_system_process_info_optimized_fast();
-    let processes = process_info.0;
-    let system_threads = process_info.1;
-    let handles = process_info.2;
+    // Получаем данные о процессах, потоках и дескрипторах (оптимизированно)
+    let (processes, system_threads, handles) = get_system_process_info_optimized_fast();
     
     // Обновляем данные в кэше
     let mut data = cache.data.write().unwrap();
     data.usage = total_usage;
     
-    // Только обновляем частоту, если получили валидное значение
     if frequency > 0.1 {
         data.frequency = frequency;
     }
     
-    // Обновляем температуру только если она изменилась
     if temp.is_some() {
         data.temperature = temp;
     }
     
-    // Обновляем данные о процессах, потоках и дескрипторах безусловно
     data.processes = processes;
     data.system_threads = system_threads;
     data.handles = handles;
@@ -443,109 +426,89 @@ fn update_cpu_dynamic_data(cache: &CpuCache) {
 
 // Максимально быстрая версия получения информации о процессах, потоках и дескрипторах
 fn get_system_process_info_optimized_fast() -> (usize, usize, usize) {
-    #[cfg(target_os = "windows")]
-    {
-        // Используем самые быстрые методы через cmd.exe
-        
-        // Получаем количество процессов
-        let mut processes = 0;
-        if let Ok(output) = Command::new("cmd")
-            .args(["/c", "tasklist /nh | find /c /v \"\""])
-            .output() 
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                if let Ok(count) = output_str.trim().parse::<usize>() {
-                    processes = count;
-                }
+    static mut LAST_UPDATE_TIME: Option<Instant> = None;
+    static mut CACHED_RESULT: (usize, usize, usize) = (0, 0, 0);
+    
+    // Используем кэширование с ограничением частоты вызова внешних команд
+    unsafe {
+        let now = Instant::now();
+        if let Some(last_time) = LAST_UPDATE_TIME {
+            // Обновляем данные не чаще, чем раз в 1 секунду
+            if now.duration_since(last_time) < Duration::from_secs(1) {
+                return CACHED_RESULT;
             }
         }
         
-        // Получаем счетчики потоков и дескрипторов напрямую из реестра производительности
+        // Обновляем данные
+        let result = get_system_process_info_internal();
+        CACHED_RESULT = result;
+        LAST_UPDATE_TIME = Some(now);
+        return result;
+    }
+}
+
+// Внутренняя функция, которая делает реальную работу по получению данных
+fn get_system_process_info_internal() -> (usize, usize, usize) {
+    #[cfg(target_os = "windows")]
+    {
+        let mut processes = 0;
         let mut threads = 0;
         let mut handles = 0;
         
-        // Используем typeperf для быстрого получения значений - обе метрики в одном запросе
+        // Объединяем запросы для получения всех данных за один вызов cmd
         if let Ok(output) = Command::new("cmd")
-            .args(["/c", "typeperf \"\\Process(_Total)\\Thread Count\" \"\\Process(_Total)\\Handle Count\" -sc 1 | findstr \"\\\""])
+            .args(["/c", "wmic process get ThreadCount,HandleCount /value && tasklist /nh | find /c /v \"\""])
             .output() 
         {
             if let Ok(output_str) = String::from_utf8(output.stdout) {
-                let parts: Vec<&str> = output_str.split(',').collect();
-                if parts.len() >= 3 {
-                    // Второй элемент - количество потоков
-                    if let Ok(count) = parts[1].trim().trim_matches('"').parse::<usize>() {
-                        threads = count;
-                    }
-                    
-                    // Третий элемент - количество дескрипторов
-                    if let Ok(count) = parts[2].trim().trim_matches('"').parse::<usize>() {
-                        handles = count;
+                // Обрабатываем count процессов (последняя строка)
+                if let Some(last_line) = output_str.lines().last() {
+                    if let Ok(count) = last_line.trim().parse::<usize>() {
+                        processes = count;
                     }
                 }
-            }
-        }
-        
-        // Если typeperf не дал результатов, используем быстрый запрос через wmic
-        if threads == 0 || handles == 0 {
-            if let Ok(output) = Command::new("cmd")
-                .args(["/c", "wmic process get ThreadCount,HandleCount /value"])
-                .output() 
-            {
-                if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    // Подсчитываем сумму всех ThreadCount и HandleCount
-                    let mut total_threads = 0;
-                    let mut total_handles = 0;
-                    
-                    for line in output_str.lines() {
-                        if line.starts_with("ThreadCount=") {
-                            if let Ok(count) = line.trim_start_matches("ThreadCount=").trim().parse::<usize>() {
-                                total_threads += count;
-                            }
-                        } else if line.starts_with("HandleCount=") {
-                            if let Ok(count) = line.trim_start_matches("HandleCount=").trim().parse::<usize>() {
-                                total_handles += count;
-                            }
+                
+                // Обрабатываем threads и handles
+                let mut total_threads = 0;
+                let mut total_handles = 0;
+                
+                for line in output_str.lines() {
+                    if line.starts_with("ThreadCount=") {
+                        if let Ok(count) = line.trim_start_matches("ThreadCount=").trim().parse::<usize>() {
+                            total_threads += count;
+                        }
+                    } else if line.starts_with("HandleCount=") {
+                        if let Ok(count) = line.trim_start_matches("HandleCount=").trim().parse::<usize>() {
+                            total_handles += count;
                         }
                     }
-                    
-                    if threads == 0 && total_threads > 0 {
-                        threads = total_threads;
-                    }
-                    
-                    if handles == 0 && total_handles > 0 {
-                        handles = total_handles;
-                    }
+                }
+                
+                if total_threads > 0 {
+                    threads = total_threads;
+                }
+                
+                if total_handles > 0 {
+                    handles = total_handles;
                 }
             }
         }
         
-        // Если все еще нет данных, используем sysinfo как последний вариант
-        if processes == 0 || threads == 0 || handles == 0 {
+        // Если не удалось получить через команду, используем приблизительные оценки
+        if processes == 0 {
             let mut sys = System::new_all();
             sys.refresh_processes();
-            
-            if processes == 0 {
-                processes = sys.processes().len();
-            }
-            
-            // Изменяем способ получения количества потоков, так как метод thread_count отсутствует
-            if threads == 0 {
-                // Используем ручной подсчет через команду tasklist
-                if let Ok(output) = Command::new("cmd")
-                    .args(["/c", "tasklist /FO CSV /NH"])
-                    .output() 
-                {
-                    if let Ok(output_str) = String::from_utf8(output.stdout) {
-                        // Приблизительно оцениваем 1 процесс = 10 потоков в среднем
-                        threads = output_str.lines().count() * 10;
-                    }
-                }
-            }
-            
-            // Приблизительное соотношение дескрипторов к потокам, если не удалось получить точное число
-            if handles == 0 && threads > 0 {
-                handles = threads * 30; // Приблизительное соотношение
-            }
+            processes = sys.processes().len();
+        }
+        
+        if threads == 0 && processes > 0 {
+            // Приблизительная оценка количества потоков
+            threads = processes * 10;
+        }
+        
+        if handles == 0 && threads > 0 {
+            // Приблизительная оценка количества дескрипторов
+            handles = threads * 30;
         }
         
         return (processes, threads, handles);
@@ -553,17 +516,12 @@ fn get_system_process_info_optimized_fast() -> (usize, usize, usize) {
     
     #[cfg(not(target_os = "windows"))]
     {
-        // На других ОС используем sysinfo для процессов
+        // Для других ОС используем упрощенный подход
         let mut sys = System::new_all();
         sys.refresh_processes();
         let processes = sys.processes().len();
-        
-        // Пытаемся подсчитать потоки на других ОС
-        // Используем приблизительную оценку вместо thread_count
-        let threads = processes * 10; // Приблизительная оценка: 10 потоков на процесс
-        
-        // Приблизительное соотношение дескрипторов к потокам
-        let handles = threads * 30; // Приблизительное соотношение
+        let threads = processes * 10;
+        let handles = threads * 30;
         
         return (processes, threads, handles);
     }
@@ -571,6 +529,8 @@ fn get_system_process_info_optimized_fast() -> (usize, usize, usize) {
 
 // Функция для обновления статических данных CPU
 fn update_cpu_static_data(cache: &CpuCache) {
+    println!("[SystemInfo] Начало обновления статических данных CPU");
+    
     // Получаем данные о CPU
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -581,23 +541,29 @@ fn update_cpu_static_data(cache: &CpuCache) {
     } else {
         "Unknown".to_string()
     };
+    println!("[SystemInfo] Имя CPU: {}", cpu_name);
     
-    // Получаем детальную информацию о процессоре
-    let cpu_details = get_cpu_details_cached();
+    // Получаем детальную информацию о процессоре с гарантированным запросом
+    let cpu_details = get_cpu_details_fresh();
+    println!("[SystemInfo] Получены детали CPU: {} полей", cpu_details.len());
     
     // Получаем базовую частоту процессора из отдельного модуля
     let base_frequency = get_base_cpu_frequency();
+    println!("[SystemInfo] Базовая частота: {} ГГц", base_frequency);
     
     // Определяем максимальную частоту процессора
     let max_frequency = cpu_details.get("MaxClockSpeed")
         .map(|s| s.parse::<f64>().unwrap_or(0.0) / 1000.0) // Преобразуем МГц в ГГц
         .unwrap_or(0.0);
+    println!("[SystemInfo] Максимальная частота: {} ГГц", max_frequency);
     
     // Получаем количество логических процессоров (потоков)
     let threads = get_cpu_logical_cores();
+    println!("[SystemInfo] Логические ядра (потоки): {}", threads);
     
     // Получаем количество физических ядер из специализированной функции
     let cores = get_cpu_physical_cores();
+    println!("[SystemInfo] Физические ядра: {}", cores);
     
     // Получаем архитектуру
     let architecture = cpu_details.get("Architecture")
@@ -608,33 +574,103 @@ fn update_cpu_static_data(cache: &CpuCache) {
             "13" => "ARM64".to_string(),
             _ => "Unknown".to_string(),
         })
-        .unwrap_or("Unknown".to_string());
+        .unwrap_or_else(|| {
+            // Резервный способ определения архитектуры
+            if let Ok(output) = Command::new("cmd")
+                .args(["/c", "echo %PROCESSOR_ARCHITECTURE%"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    let arch = output_str.trim().to_lowercase();
+                    if arch.contains("amd64") || arch.contains("x64") {
+                        return "x64".to_string();
+                    } else if arch.contains("x86") {
+                        return "x86".to_string();
+                    } else if arch.contains("arm") {
+                        return if arch.contains("64") { "ARM64".to_string() } else { "ARM".to_string() };
+                    }
+                }
+            }
+            "Unknown".to_string()
+        });
+    println!("[SystemInfo] Архитектура: {}", architecture);
     
     // Получаем размер кэша
     let cache_size = cpu_details.get("L3CacheSize")
         .map(|s| format!("{} KB", s))
         .unwrap_or_else(|| {
-            cpu_details.get("cache size")
-                .cloned()
-                .unwrap_or_else(|| "Unknown".to_string())
+            cpu_details.get("L2CacheSize")
+                .map(|s| format!("{} KB", s))
+                .unwrap_or_else(|| {
+                    // Резервный способ получения размера кэша
+                    if let Ok(output) = Command::new("wmic")
+                        .args(["cpu", "get", "L2CacheSize,L3CacheSize", "/format:list"])
+                        .output() 
+                    {
+                        if let Ok(output_str) = String::from_utf8(output.stdout) {
+                            for line in output_str.lines() {
+                                if line.starts_with("L3CacheSize=") {
+                                    let size = line.trim_start_matches("L3CacheSize=").trim();
+                                    if !size.is_empty() && size != "0" {
+                                        return format!("{} KB", size);
+                                    }
+                                } else if line.starts_with("L2CacheSize=") {
+                                    let size = line.trim_start_matches("L2CacheSize=").trim();
+                                    if !size.is_empty() && size != "0" {
+                                        return format!("{} KB", size);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "Unknown".to_string()
+                })
         });
+    println!("[SystemInfo] Размер кэша: {}", cache_size);
+    
+    // Получаем производителя
+    let vendor = cpu_details.get("Manufacturer")
+        .cloned()
+        .unwrap_or_else(|| {
+            cpu_details.get("vendor_id")
+                .cloned()
+                .unwrap_or_else(|| {
+                    // Резервный способ получения производителя
+                    if let Ok(output) = Command::new("wmic")
+                        .args(["cpu", "get", "Manufacturer", "/format:list"])
+                        .output() 
+                    {
+                        if let Ok(output_str) = String::from_utf8(output.stdout) {
+                            for line in output_str.lines() {
+                                if line.starts_with("Manufacturer=") {
+                                    let manufacturer = line.trim_start_matches("Manufacturer=").trim();
+                                    if !manufacturer.is_empty() {
+                                        return manufacturer.to_string();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "Unknown".to_string()
+                })
+        });
+    println!("[SystemInfo] Производитель: {}", vendor);
     
     // Обновляем данные в кэше
     {
         let mut data = cache.data.write().unwrap();
         data.name = cpu_name.clone();
-        data.cores = cores;  // Используем количество ядер из модуля cpu_frequency
-        data.threads = threads;  // Используем количество потоков из модуля cpu_frequency
+        data.cores = cores;
+        data.threads = threads;
         data.base_frequency = base_frequency;
         data.max_frequency = max_frequency;
         data.architecture = architecture;
-        data.vendor_id = cpu_details.get("Manufacturer").cloned().unwrap_or_else(|| {
-            cpu_details.get("vendor_id").cloned().unwrap_or("Unknown".to_string())
-        });
+        data.vendor_id = vendor;
         data.model_name = cpu_details.get("Name").cloned().unwrap_or_else(|| {
             cpu_details.get("model name").cloned().unwrap_or(cpu_name)
         });
         data.cache_size = cache_size;
+        println!("[SystemInfo] Данные обновлены в кэше");
     }
     
     // Обновляем время последнего обновления
@@ -642,17 +678,96 @@ fn update_cpu_static_data(cache: &CpuCache) {
     *last_update = Instant::now();
 }
 
-// Функция для обновления данных о памяти - без задержек
+// Функция для получения свежих данных о процессоре без кэширования
+fn get_cpu_details_fresh() -> HashMap<String, String> {
+    // На Windows используем wmic для получения дополнительной информации
+    let mut result: HashMap<String, String> = HashMap::new();
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Основной метод через wmic
+        if let Ok(output) = Command::new("wmic")
+            .args(["cpu", "get", "Name,NumberOfCores,ThreadCount,MaxClockSpeed,Caption,Description,Architecture,Manufacturer,ProcessorId,L2CacheSize,L3CacheSize,Stepping,Family", "/format:list"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                for line in output_str.lines() {
+                    if line.is_empty() {
+                        continue;
+                    }
+                    
+                    if let Some(sep_pos) = line.find('=') {
+                        let key = line[..sep_pos].trim().to_string();
+                        let value = line[sep_pos + 1..].trim().to_string();
+                        result.insert(key, value);
+                    }
+                }
+            }
+        }
+        
+        // Резервный метод через systeminfo
+        if result.is_empty() {
+            if let Ok(output) = Command::new("systeminfo")
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    for line in output_str.lines() {
+                        if line.contains("Processor") {
+                            let parts: Vec<&str> = line.split(':').collect();
+                            if parts.len() >= 2 {
+                                result.insert("Name".to_string(), parts[1].trim().to_string());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        // На Linux читаем /proc/cpuinfo
+        if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+            for line in cpuinfo.lines() {
+                if line.is_empty() {
+                    continue;
+                }
+                
+                if let Some(sep_pos) = line.find(':') {
+                    let key = line[..sep_pos].trim().to_string();
+                    let value = line[sep_pos + 1..].trim().to_string();
+                    
+                    if key == "model name" || key == "cpu MHz" || key == "vendor_id" || 
+                    key == "cache size" || key == "cpu cores" || key == "processor" ||
+                    key == "stepping" || key == "cpu family" {
+                        result.insert(key, value);
+                    }
+                }
+            }
+        }
+    }
+    
+    result
+}
+
+// Функция для обновления данных о памяти - оптимизированная версия
 fn update_memory_data(cache: &MemoryCache) {
     // Проверяем активен ли мониторинг, если нет - не обновляем
     if !is_monitoring_active() {
         return;
     }
 
-    // Удаляем проверку интервала последнего обновления полностью
-    // для максимальной частоты обновления
+    // Ограничиваем частоту реального обновления данных о памяти
+    {
+        let last_update = cache.last_update.read().unwrap();
+        if last_update.elapsed() < Duration::from_millis(100) {
+            // Возвращаемся без обновления при слишком частых вызовах
+            return;
+        }
+    }
 
-    // Получаем данные о памяти напрямую из System для снижения накладных расходов
+    // Получаем данные о памяти
     let mut sys = System::new_all();
     sys.refresh_memory(); // Только память обновляем
     
@@ -669,30 +784,44 @@ fn update_memory_data(cache: &MemoryCache) {
         0.0
     };
     
-    // Обновляем данные в кэше
-    let mut data = cache.data.write().unwrap();
-    data.total_memory = total;
-    data.used_memory = used;
-    data.free_memory = free;
-    data.available_memory = available;
-    data.usage_percent = usage_percent;
+    // Проверяем, нужно ли обновлять данные (изменение > 0.5%)
+    let mut need_update = false;
+    {
+        let current_data = cache.data.read().unwrap();
+        // Обновляем только если процент использования изменился существенно
+        if (current_data.usage_percent - usage_percent).abs() > 0.5 {
+            need_update = true;
+        }
+    }
+    
+    if need_update {
+        // Обновляем данные в кэше только при существенных изменениях
+        let mut data = cache.data.write().unwrap();
+        data.total_memory = total;
+        data.used_memory = used;
+        data.free_memory = free;
+        data.available_memory = available;
+        data.usage_percent = usage_percent;
+    }
     
     // Обновляем время последнего обновления
     let mut last_update = cache.last_update.write().unwrap();
     *last_update = Instant::now();
 }
 
-// Функция для обновления данных о дисках - оптимизированная версия
+// Функция для обновления данных о дисках - с оптимизацией
 fn update_disk_data(cache: &DiskCache) {
     // Проверяем активен ли мониторинг, если нет - не обновляем
     if !is_monitoring_active() {
         return;
     }
 
-    // Проверяем время последнего обновления - не чаще чем раз в 500 мс
+    // Ограничиваем частоту реального обновления данных о дисках, 
+    // но при этом сохраняем частоту вызова для UI
     {
         let last_update = cache.last_update.read().unwrap();
         if last_update.elapsed() < Duration::from_millis(500) {
+            // Просто возвращаемся без обновления, чтобы не тратить ресурсы
             return;
         }
     }
@@ -711,30 +840,32 @@ fn update_disk_data(cache: &DiskCache) {
             0.0
         };
         
-        // Преобразуем OsStr в String для файловой системы
+        let name = disk.name().to_string_lossy().to_string();
+        let mount_point = disk.mount_point().to_string_lossy().to_string();
         let fs_string = disk.file_system().to_string_lossy().to_string();
         
         disks_info.push(DiskInfo {
-            name: disk.name().to_string_lossy().to_string(),
-            mount_point: disk.mount_point().to_string_lossy().to_string(),
-            available_space: disk.available_space(),
-            total_space: disk.total_space(),
+            name,
+            mount_point,
+            available_space: available,
+            total_space: total,
             file_system: fs_string,
             is_removable: disk.is_removable(),
             usage_percent,
         });
     }
     
-    // Обновляем данные в кэше только если они изменились
+    // Проверяем, изменились ли данные существенно, чтобы не обновлять без необходимости
     let mut need_update = true;
     {
         let current_disks = cache.data.read().unwrap();
         if current_disks.len() == disks_info.len() {
-            // Проверяем, изменились ли данные существенно
+            // Обновляем только если данные изменились более чем на 1%
             need_update = false;
             for (i, disk) in current_disks.iter().enumerate() {
-                if (disk.usage_percent - disks_info[i].usage_percent).abs() > 0.5 ||
-                   disk.available_space != disks_info[i].available_space {
+                if (disk.usage_percent - disks_info[i].usage_percent).abs() > 1.0 ||
+                   (disk.available_space as f64 / disk.total_space as f64) - 
+                   (disks_info[i].available_space as f64 / disks_info[i].total_space as f64) > 0.01 {
                     need_update = true;
                     break;
                 }
@@ -743,14 +874,14 @@ fn update_disk_data(cache: &DiskCache) {
     }
     
     if need_update {
-        // Обновляем данные в кэше
+        // Обновляем данные в кэше только если есть реальные изменения
         let mut data = cache.data.write().unwrap();
         *data = disks_info;
-        
-        // Обновляем время последнего обновления
-        let mut last_update = cache.last_update.write().unwrap();
-        *last_update = Instant::now();
     }
+    
+    // Обновляем время последнего обновления в любом случае
+    let mut last_update = cache.last_update.write().unwrap();
+    *last_update = Instant::now();
 }
 
 // ------ Утилиты для получения данных ------
