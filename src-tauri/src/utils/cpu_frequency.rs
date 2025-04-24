@@ -149,30 +149,74 @@ pub fn get_current_cpu_frequency() -> f64 {
     let base_freq = get_base_cpu_frequency();
     let max_freq = get_max_cpu_frequency();
     
-    // Получим нагрузку из Task Manager
+    // Получаем нагрузку CPU для более динамичного расчета
     let load = get_task_manager_cpu_load();
     
-    // Считаем частоту по нагрузке из sysinfo
-    let current_freq = get_cpu_frequency_from_sysinfo();
+    // Получаем частоту различными методами и выбираем наиболее подходящую
     
-    // Добавляем в историю для сглаживания
+    // 1. Пробуем через PDH (Windows Performance Counters)
+    let pdh_freq = get_frequency_from_windows_pdh();
+    
+    // 2. Получаем значение из sysinfo
+    let sysinfo_freq = match get_sysinfo_cpu_frequency() {
+        Some(freq) => freq,
+        None => get_cpu_frequency_from_sysinfo() // Расчет по формуле, если прямое значение недоступно
+    };
+    
+    // Рассчитываем итоговую частоту, используя консервативные веса
+    let current_freq = if let Some(pdh) = pdh_freq {
+        // PDH наиболее точный, но может быть завышен - даем ему 50% веса
+        pdh * 0.5 + sysinfo_freq * 0.5
+    } else {
+        // Если PDH недоступен, используем только sysinfo
+        sysinfo_freq
+    };
+    
+    // Убеждаемся, что частота соответствует текущей нагрузке и не завышена
+    let adjusted_freq = if load < 5.0 {
+        // При очень низкой нагрузке - частота существенно ниже базовой
+        base_freq * (0.55 + (load / 5.0) * 0.1)
+    } else if load < 20.0 {
+        // 5-20% нагрузки - плавный переход к 80% от базовой
+        base_freq * (0.65 + (load - 5.0) / 15.0 * 0.15)
+    } else if load < 50.0 {
+        // 20-50% нагрузки - приближение к базовой
+        base_freq * (0.8 + (load - 20.0) / 30.0 * 0.15)
+    } else if load < 80.0 {
+        // 50-80% нагрузки - небольшой рост выше базовой
+        base_freq * (0.95 + (load - 50.0) / 30.0 * 0.15)
+    } else {
+        // 80-100% нагрузки - рост до максимальной, но не более 80% от максимума
+        let max_allowed = base_freq + (max_freq - base_freq) * 0.8;
+        let boost_factor = (load - 80.0) / 20.0;
+        base_freq * 1.1 + (max_allowed - base_freq * 1.1) * boost_factor
+    };
+    
+    // Усреднение текущей частоты и частоты по нагрузке для большей стабильности
+    let combined_freq = current_freq * 0.3 + adjusted_freq * 0.7;
+    
+    // Добавляем в историю для сглаживания, но очень ограниченно
     let mut history = FREQUENCY_HISTORY.lock().unwrap();
-    if history.len() >= 10 {
+    if history.len() >= 3 { // Уменьшаем окно для большей динамичности
         history.pop_front();
     }
-    history.push_back(current_freq);
+    history.push_back(combined_freq);
     
-    // Вычисляем среднее для сглаживания
+    // Вычисляем среднее для небольшого сглаживания
     let smoothed_freq = history.iter().sum::<f64>() / history.len() as f64;
     
     // Обновляем последнее значение
     *LAST_FREQUENCY.lock().unwrap() = smoothed_freq;
     
+    // Ограничиваем результат очень консервативными значениями
+    // Не позволяем превышать 80% от максимума или опускаться ниже 55% от базы
+    let final_freq = smoothed_freq.max(base_freq * 0.55).min(max_freq * 0.8);
+    
     // Выводим отладочную информацию
     println!("[DEBUG] Частота CPU: {} ГГц, Нагрузка: {}%, База: {} ГГц, Макс: {} ГГц", 
-            smoothed_freq, load, base_freq, max_freq);
+            final_freq, load, base_freq, max_freq);
     
-    smoothed_freq
+    final_freq
 }
 
 /// Получает информацию о частоте через Windows Performance Counters (PDH)
@@ -248,11 +292,18 @@ fn get_frequency_from_windows_pdh() -> Option<f64> {
                         let base_freq = get_base_cpu_frequency();
                         let max_freq = get_max_cpu_frequency();
                         
-                        // Расчет частоты
-                        // Полученное значение - это % производительности процессора, переводим его в частоту
-                        let freq = base_freq + (max_freq - base_freq) * (double_val / 100.0);
+                        // Улучшенный расчет частоты с существенным снижением коэффициентов
+                        let freq = if double_val <= 100.0 {
+                            // При нагрузке до 100% используем консервативную формулу
+                            base_freq + (max_freq - base_freq) * (double_val / 100.0) * 0.7
+                        } else {
+                            // Если производительность > 100%, значит турбо режим
+                            base_freq + (max_freq - base_freq) * ((double_val - 100.0) / 100.0 + 0.5)
+                        };
                         
-                        return Some(freq.min(max_freq).max(base_freq));
+                        // Ограничиваем результат, не позволяя выйти за максимум
+                        // Дополнительно снижаем максимум для предотвращения завышенных значений
+                        return Some(freq.min(max_freq * 0.85).max(base_freq * 0.65));
                     }
                 }
             }
@@ -668,30 +719,35 @@ pub fn get_cpu_frequency_from_sysinfo() -> f64 {
     // Получаем нагрузку CPU
     let cpu_load = get_sysinfo_cpu_load();
     
-    // Минимальная частота обычно составляет 60-70% от базовой
-    let min_freq = base_freq * 0.65;
+    // Минимальная частота даже ниже, чем обычно
+    let min_freq = base_freq * 0.55;
     
-    // Доработанная нелинейная зависимость частоты от нагрузки
+    // Очень консервативная зависимость частоты от нагрузки
     let current_freq = if cpu_load < 1.0 {
         // При почти нулевой нагрузке - минимальная частота
         min_freq
     } else if cpu_load < 5.0 {
         // 1-5% нагрузки - плавный переход от минимальной к базовой
-        min_freq + (base_freq - min_freq) * ((cpu_load - 1.0) / 4.0)
+        min_freq + (base_freq - min_freq) * ((cpu_load - 1.0) / 4.0) * 0.7
     } else if cpu_load < 20.0 {
-        // 5-20% нагрузки - частота около базовой
-        base_freq * (0.95 + (cpu_load - 5.0) / 300.0)
+        // 5-20% нагрузки - частота ниже базовой
+        base_freq * (0.8 + (cpu_load - 5.0) / 300.0)
     } else if cpu_load < 50.0 {
-        // 20-50% нагрузки - начало турбо-режима
-        base_freq + (max_freq - base_freq) * ((cpu_load - 20.0) / 30.0) * 0.5
+        // 20-50% нагрузки - приближается к базовой
+        base_freq * (0.9 + (cpu_load - 20.0) / 300.0)
+    } else if cpu_load < 80.0 {
+        // 50-80% нагрузки - медленный рост выше базовой
+        let boost_factor = (cpu_load - 50.0) / 30.0;
+        base_freq + (max_freq - base_freq) * boost_factor * 0.25
     } else {
-        // 50-100% нагрузки - рост до максимальной частоты
-        let boost_factor = (cpu_load - 50.0) / 50.0;
-        base_freq + (max_freq - base_freq) * (0.5 + 0.5 * boost_factor)
+        // 80-100% нагрузки - рост до макс. частоты, но не полностью
+        let boost_factor = (cpu_load - 80.0) / 20.0;
+        base_freq + (max_freq - base_freq) * (0.25 + boost_factor * 0.35)
     };
     
     // Проверяем на разумность полученного значения
-    let result = current_freq.max(min_freq).min(max_freq);
+    // Устанавливаем более низкий максимум для предотвращения завышения
+    let result = current_freq.max(min_freq).min(max_freq * 0.85);
     
     println!("[DEBUG] get_cpu_frequency_from_sysinfo: Нагрузка: {}%, Частота: {} ГГц", 
            cpu_load, result);
