@@ -108,7 +108,7 @@ fn get_sysinfo_cpu_frequency() -> Option<f64> {
     sys.refresh_cpu();
     
     // Получаем базовую и максимальную частоты для проверки
-    let base_freq = get_base_cpu_frequency();
+    let _base_freq = get_base_cpu_frequency();
     let max_freq = get_max_cpu_frequency();
     
     // В sysinfo частота обычно доступна через .frequency() метод для процессоров
@@ -242,7 +242,7 @@ fn get_frequency_from_windows_pdh() -> Option<f64> {
                         // Получаем значение из объединения через безопасное приведение типа
                         // Используем тип PdhFmtCounterValue для доступа к полю value
                         let raw_ptr = &counter_value as *const PDH_FMT_COUNTERVALUE as *const PdhFmtCounterValue;
-                        let double_val = unsafe { (*raw_ptr).value };
+                        let double_val = (*raw_ptr).value;
                         
                         // Получаем кэшированные значения базовой и максимальной частоты
                         let base_freq = get_base_cpu_frequency();

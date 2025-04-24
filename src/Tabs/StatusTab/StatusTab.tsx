@@ -41,6 +41,11 @@ interface MemoryInfo {
   swap_used: number;       // Используемое количество виртуальной памяти  
   swap_free: number;       // Свободное количество виртуальной памяти
   swap_usage_percentage: number; // Процент использования виртуальной памяти
+  memory_speed: string;    // Скорость памяти в МГц
+  slots_total: number;     // Общее количество слотов памяти
+  slots_used: number;      // Использованное количество слотов памяти
+  memory_name: string;     // Название/производитель памяти
+  memory_part_number: string; // Номер модели памяти
 }
 
 interface DiskInfo {
@@ -394,13 +399,29 @@ const StatusTab: React.FC = () => {
           {systemInfo.memory ? (
             <div className="system-section">
               <h3 className="section-header">Оперативная память</h3>
-              <div className="processor-model">Оперативная память</div>
+              <div className="processor-model">
+                {systemInfo.memory.memory_name && systemInfo.memory.memory_part_number 
+                  ? `${systemInfo.memory.memory_name} ${systemInfo.memory.memory_part_number}` 
+                  : 'Оперативная память'}
+              </div>
               
               <div className="info-block">
                 <div className="info-text">
                   <div className="info-row">
                     <span>Тип памяти:</span>
                     <span>{systemInfo.memory.type_ram || 'Нет данных'}</span>
+                  </div>
+                  <div className="info-row">
+                    <span>Производитель:</span>
+                    <span>{systemInfo.memory.memory_name || 'Нет данных'}</span>
+                  </div>
+                  <div className="info-row">
+                    <span>Модель:</span>
+                    <span>{systemInfo.memory.memory_part_number || 'Нет данных'}</span>
+                  </div>
+                  <div className="info-row">
+                    <span>Скорость:</span>
+                    <span>{systemInfo.memory.memory_speed || 'Нет данных'}</span>
                   </div>
                   <div className="info-row">
                     <span>Объем памяти:</span>

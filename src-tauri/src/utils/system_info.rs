@@ -74,6 +74,11 @@ impl From<MemoryData> for MemoryInfo {
             swap_used: 0,
             swap_free: 0,
             swap_usage_percentage: 0.0,
+            memory_speed: String::from("Unknown"),
+            slots_total: 0,
+            slots_used: 0,
+            memory_name: String::from("Unknown"),
+            memory_part_number: String::from("Unknown"),
         }
     }
 }
@@ -90,6 +95,11 @@ pub struct MemoryInfo {
     pub swap_used: u64,
     pub swap_free: u64,
     pub swap_usage_percentage: f64,
+    pub memory_speed: String,     // Скорость памяти (МГц)
+    pub slots_total: u32,         // Общее количество слотов памяти
+    pub slots_used: u32,          // Используемые слоты памяти
+    pub memory_name: String,      // Название/производитель памяти
+    pub memory_part_number: String, // Номер модели памяти
 }
 
 impl Default for MemoryInfo {
@@ -105,6 +115,11 @@ impl Default for MemoryInfo {
             swap_used: 0,
             swap_free: 0,
             swap_usage_percentage: 0.0,
+            memory_speed: String::from("Unknown"),
+            slots_total: 0,
+            slots_used: 0,
+            memory_name: String::from("Unknown"),
+            memory_part_number: String::from("Unknown"),
         }
     }
 }
@@ -929,6 +944,11 @@ fn get_system_info_internal() -> SystemInfo {
         swap_used: 0,
         swap_free: 0,
         swap_usage_percentage: 0.0,
+        memory_speed: String::from("Unknown"),
+        slots_total: 0,
+        slots_used: 0,
+        memory_name: String::from("Unknown"),
+        memory_part_number: String::from("Unknown"),
     };
     
     SystemInfo {
@@ -1187,8 +1207,9 @@ fn update_memory_data(cache: &MemoryCache) {
     let available = sys.available_memory();
     
     // Получаем информацию о виртуальной памяти
-    let swap_total = sys.total_swap();
-    let swap_used = sys.used_swap();
+    let mut swap_total = sys.total_swap();
+    let mut swap_used = sys.used_swap();
+    let swap_free = swap_total.saturating_sub(swap_used);
     
     // Вычисляем процент использования
     let usage_percent = if total > 0 {
@@ -1198,7 +1219,7 @@ fn update_memory_data(cache: &MemoryCache) {
     };
     
     // Вычисляем процент использования виртуальной памяти
-    let virtual_memory_percent = if swap_total > 0 {
+    let mut virtual_memory_percent = if swap_total > 0 {
         (swap_used as f32 / swap_total as f32) * 100.0
     } else {
         0.0
@@ -1207,6 +1228,10 @@ fn update_memory_data(cache: &MemoryCache) {
     // Получаем дополнительную информацию о памяти через WMI
     let mut memory_type = String::from("Unknown");
     let mut memory_speed = String::from("Unknown");
+    let mut memory_slots_total: u32 = 0;
+    let mut memory_slots_used: u32 = 0;
+    let mut memory_name = String::from("Unknown");
+    let mut memory_part_number = String::from("Unknown");
     
     #[cfg(target_os = "windows")]
     {
@@ -1268,6 +1293,115 @@ fn update_memory_data(cache: &MemoryCache) {
                 }
             }
         }
+        
+        // Получаем производителя памяти
+        if let Ok(output) = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty Manufacturer"
+            ])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                let manufacturer = output_str.trim();
+                if !manufacturer.is_empty() {
+                    memory_name = manufacturer.to_string();
+                }
+            }
+        }
+        
+        // Получаем номер модели памяти (Part Number)
+        if let Ok(output) = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty PartNumber"
+            ])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                let part_number = output_str.trim();
+                if !part_number.is_empty() {
+                    memory_part_number = part_number.to_string();
+                }
+            }
+        }
+        
+        // Подсчитываем количество слотов памяти
+        if let Ok(output) = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance -ClassName Win32_PhysicalMemoryArray | Select-Object -ExpandProperty MemoryDevices"
+            ])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(slots) = output_str.trim().parse::<u32>() {
+                    memory_slots_total = slots;
+                }
+            }
+        }
+        
+        // Подсчитываем занятые слоты
+        if let Ok(output) = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "(Get-CimInstance -ClassName Win32_PhysicalMemory).Count"
+            ])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(used_slots) = output_str.trim().parse::<u32>() {
+                    memory_slots_used = used_slots;
+                }
+            }
+        }
+        
+        // Проверяем файл подкачки, если данные еще не получены
+        if swap_total == 0 {
+            if let Ok(output) = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Get-CimInstance Win32_PageFileUsage | Select-Object -Property AllocatedBaseSize, CurrentUsage | ConvertTo-Json"
+                ])
+                .output()
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    // Ищем значения AllocatedBaseSize и CurrentUsage в JSON
+                    if let Some(allocated_pos) = output_str.find("\"AllocatedBaseSize\":") {
+                        if let Some(end_pos) = output_str[allocated_pos..].find(',') {
+                            let allocated_str = &output_str[allocated_pos + 21..allocated_pos + end_pos];
+                            if let Ok(allocated) = allocated_str.trim().parse::<u64>() {
+                                // Преобразуем МБ в байты
+                                let total_mb = allocated * 1024 * 1024;
+                                
+                                if let Some(current_pos) = output_str.find("\"CurrentUsage\":") {
+                                    if let Some(end_pos) = output_str[current_pos..].find('\n') {
+                                        let current_str = &output_str[current_pos + 15..current_pos + end_pos];
+                                        if let Ok(usage) = current_str.trim().trim_matches(',').trim_matches('}').parse::<u64>() {
+                                            // Преобразуем МБ в байты
+                                            let used_mb = usage * 1024 * 1024;
+                                            
+                                            swap_total = total_mb;
+                                            swap_used = used_mb;
+                                            virtual_memory_percent = if total_mb > 0 {
+                                                (used_mb as f32 / total_mb as f32) * 100.0
+                                            } else {
+                                                0.0
+                                            };
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     
     // Если тип памяти не определен, пытаемся определить через косвенные признаки
@@ -1278,6 +1412,13 @@ fn update_memory_data(cache: &MemoryCache) {
         } else {
             memory_type = String::from("DDR4");
         }
+    }
+    
+    // Если слоты все еще не определены, используем приблизительную оценку
+    if memory_slots_total == 0 {
+        // Большинство современных ПК имеют 2-4 слота памяти
+        memory_slots_total = 4;
+        memory_slots_used = 2; // Предполагаем, что используется половина слотов
     }
     
     // Проверяем, нужно ли обновлять данные (изменение > 0.5%)
@@ -1301,11 +1442,16 @@ fn update_memory_data(cache: &MemoryCache) {
         
         data.swap_total = swap_total;
         data.swap_used = swap_used;
-        data.swap_free = swap_total.saturating_sub(swap_used);
+        data.swap_free = swap_free;
         data.swap_usage_percentage = virtual_memory_percent as f64;
         
-        // Обновляем статические данные о типе памяти
+        // Обновляем статические данные о памяти
         data.type_ram = memory_type;
+        data.memory_speed = memory_speed;
+        data.slots_total = memory_slots_total;
+        data.slots_used = memory_slots_used;
+        data.memory_name = memory_name;
+        data.memory_part_number = memory_part_number;
     }
     
     // Обновляем время последнего обновления
