@@ -14,8 +14,6 @@ use std::ptr::null_mut;
 #[cfg(target_os = "windows")]
 use winapi::um::pdh::{PdhOpenQueryA, PdhAddEnglishCounterA, PdhCollectQueryData, PdhGetFormattedCounterValue, PDH_FMT_DOUBLE, PDH_FMT_COUNTERVALUE, PDH_HQUERY, PDH_HCOUNTER};
 #[cfg(target_os = "windows")]
-use winapi::shared::minwindef::DWORD;
-#[cfg(target_os = "windows")]
 use winapi::shared::ntdef::NULL;
 #[cfg(target_os = "windows")]
 use std::ffi::CString;
@@ -151,8 +149,8 @@ pub fn get_current_cpu_frequency() -> f64 {
     let base_freq = get_base_cpu_frequency();
     let max_freq = get_max_cpu_frequency();
     
-    // Получение текущей нагрузки через sysinfo
-    let cpu_load = get_sysinfo_cpu_load();
+    // Получим нагрузку из Task Manager
+    let load = get_task_manager_cpu_load();
     
     // Считаем частоту по нагрузке из sysinfo
     let current_freq = get_cpu_frequency_from_sysinfo();
@@ -172,7 +170,7 @@ pub fn get_current_cpu_frequency() -> f64 {
     
     // Выводим отладочную информацию
     println!("[DEBUG] Частота CPU: {} ГГц, Нагрузка: {}%, База: {} ГГц, Макс: {} ГГц", 
-            smoothed_freq, cpu_load, base_freq, max_freq);
+            smoothed_freq, load, base_freq, max_freq);
     
     smoothed_freq
 }
@@ -828,4 +826,74 @@ pub fn get_cpu_model() -> String {
     initialize_cpu_info_if_needed();
     
     CPU_MODEL.lock().unwrap().clone()
+}
+
+pub fn get_task_manager_cpu_load() -> f64 {
+    let mut sys = System::new_with_specifics(sysinfo::RefreshKind::new().with_cpu(sysinfo::CpuRefreshKind::everything()));
+    sys.refresh_cpu();
+    
+    // Метод 1: Получение нагрузки через sysinfo
+    // Часто это наиболее точный способ
+    let mut total_load = 0.0;
+    let cpu_count = sys.cpus().len();
+    
+    if cpu_count > 0 {
+        for cpu in sys.cpus() {
+            total_load += cpu.cpu_usage() as f64;
+        }
+        
+        let average_load = total_load / cpu_count as f64;
+        println!("CPU load from sysinfo: {}%", average_load);
+        
+        if average_load > 0.0 {
+            return average_load;
+        }
+    }
+    
+    // Метод 2: Получение нагрузки через WMI (только для Windows)
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = Command::new("powershell")
+            .args(["-Command", "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty LoadPercentage"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(usage) = output_str.trim().parse::<f64>() {
+                    println!("CPU load from WMI: {}%", usage);
+                    return usage;
+                }
+            }
+        }
+    }
+    
+    // Метод 3: Получение нагрузки через PDH API (только для Windows)
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = Command::new("powershell")
+            .args(["-Command", "Get-Counter -Counter '\\Processor(_Total)\\% Processor Time' | Select-Object -ExpandProperty CounterSamples | Select-Object -ExpandProperty CookedValue"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(usage) = output_str.trim().parse::<f64>() {
+                    println!("CPU load from PDH: {}%", usage);
+                    return usage;
+                }
+            }
+        }
+    }
+    
+    // Запасной метод для других ОС или если все методы выше не сработали
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut sys = System::new_all();
+        sys.refresh_cpu();
+        let total_usage = sys.cpus().iter().map(|p| p.cpu_usage() as f64).sum::<f64>() / 
+                         (sys.cpus().len() as f64);
+        println!("CPU load from sysinfo (fallback): {}%", total_usage);
+        return total_usage;
+    }
+    
+    // Если все методы не сработали, возвращаем 0
+    println!("Failed to get CPU load, returning 0");
+    0.0
 } 

@@ -43,10 +43,10 @@ pub struct DiskInfo {
     pub usage_percent: f32,
 }
 
-#[derive(Debug, Clone)]
+// Структура для хранения данных о памяти (внутренняя)
 struct MemoryData {
-    total: u64,       // общая память в МБ
-    used: u64,        // использованная память в МБ
+    total: u64,       // общая память в байтах
+    used: u64,        // использованная память в байтах
     usage_percent: f64, // процент использования
 }
 
@@ -60,29 +60,53 @@ impl Default for MemoryData {
     }
 }
 
+// Конвертер из внутренней структуры в публичную
 impl From<MemoryData> for MemoryInfo {
     fn from(data: MemoryData) -> Self {
         MemoryInfo {
-            total_memory: data.total * 1024 * 1024,  // Преобразуем обратно в байты
-            used_memory: data.used * 1024 * 1024,    // Преобразуем обратно в байты
-            free_memory: (data.total - data.used) * 1024 * 1024, // Преобразуем обратно в байты
-            available_memory: (data.total - data.used) * 1024 * 1024, // Преобразуем обратно в байты
-            usage_percent: data.usage_percent as f32,
-            memory_type: "DDR4".to_string(), // Заглушка
-            frequency: "3200 MHz".to_string(), // Заглушка
+            total: data.total,
+            used: data.used,
+            free: data.total.saturating_sub(data.used),
+            available: data.total.saturating_sub(data.used),
+            usage_percentage: data.usage_percent,
+            type_ram: String::from("Unknown"),
+            swap_total: 0,
+            swap_used: 0,
+            swap_free: 0,
+            swap_usage_percentage: 0.0,
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryInfo {
-    pub total_memory: u64,
-    pub used_memory: u64,
-    pub free_memory: u64,
-    pub available_memory: u64,
-    pub usage_percent: f32,
-    pub memory_type: String,
-    pub frequency: String,
+    pub total: u64,
+    pub available: u64,
+    pub used: u64,
+    pub free: u64,
+    pub usage_percentage: f64,
+    pub type_ram: String,
+    pub swap_total: u64,
+    pub swap_used: u64,
+    pub swap_free: u64,
+    pub swap_usage_percentage: f64,
+}
+
+impl Default for MemoryInfo {
+    fn default() -> Self {
+        Self {
+            total: 0,
+            available: 0,
+            used: 0,
+            free: 0,
+            usage_percentage: 0.0,
+            type_ram: String::from("Unknown"),
+            swap_total: 0,
+            swap_used: 0,
+            swap_free: 0,
+            swap_usage_percentage: 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -544,7 +568,7 @@ fn update_cpu_static_data(cache: &CpuCache) {
     println!("[SystemInfo] Имя CPU: {}", cpu_name);
     
     // Получаем детальную информацию о процессоре с гарантированным запросом
-    let cpu_details = get_cpu_details_fresh();
+    let cpu_details = get_cpu_details_cached();
     println!("[SystemInfo] Получены детали CPU: {} полей", cpu_details.len());
     
     // Получаем базовую частоту процессора из отдельного модуля
@@ -751,190 +775,6 @@ fn get_cpu_details_fresh() -> HashMap<String, String> {
     result
 }
 
-// Функция для обновления данных о памяти - оптимизированная версия
-fn update_memory_data(cache: &MemoryCache) {
-    // Проверяем активен ли мониторинг, если нет - не обновляем
-    if !is_monitoring_active() {
-        return;
-    }
-
-    // Ограничиваем частоту реального обновления данных о памяти
-    {
-        let last_update = cache.last_update.read().unwrap();
-        if last_update.elapsed() < Duration::from_millis(100) {
-            // Возвращаемся без обновления при слишком частых вызовах
-            return;
-        }
-    }
-
-    // Получаем данные о памяти
-    let mut sys = System::new_all();
-    sys.refresh_memory(); // Только память обновляем
-    
-    // Конвертируем в нужные единицы
-    let total = sys.total_memory();
-    let used = sys.used_memory();
-    let free = sys.free_memory();
-    let available = sys.available_memory();
-    
-    // Вычисляем процент использования
-    let usage_percent = if total > 0 {
-        (used as f32 / total as f32) * 100.0
-    } else {
-        0.0
-    };
-    
-    // Проверяем, нужно ли обновлять данные (изменение > 0.5%)
-    let mut need_update = false;
-    {
-        let current_data = cache.data.read().unwrap();
-        // Обновляем только если процент использования изменился существенно
-        if (current_data.usage_percent - usage_percent).abs() > 0.5 {
-            need_update = true;
-        }
-    }
-    
-    if need_update {
-        // Обновляем данные в кэше только при существенных изменениях
-        let mut data = cache.data.write().unwrap();
-        data.total_memory = total;
-        data.used_memory = used;
-        data.free_memory = free;
-        data.available_memory = available;
-        data.usage_percent = usage_percent;
-    }
-    
-    // Обновляем время последнего обновления
-    let mut last_update = cache.last_update.write().unwrap();
-    *last_update = Instant::now();
-}
-
-// Функция для обновления данных о дисках - с оптимизацией
-fn update_disk_data(cache: &DiskCache) {
-    // Проверяем активен ли мониторинг, если нет - не обновляем
-    if !is_monitoring_active() {
-        return;
-    }
-
-    // Ограничиваем частоту реального обновления данных о дисках, 
-    // но при этом сохраняем частоту вызова для UI
-    {
-        let last_update = cache.last_update.read().unwrap();
-        if last_update.elapsed() < Duration::from_millis(500) {
-            // Просто возвращаемся без обновления, чтобы не тратить ресурсы
-            return;
-        }
-    }
-
-    // Получаем данные о дисках
-    let disks = Disks::new();
-    let mut disks_info = Vec::new();
-    
-    for disk in disks.iter() {
-        let total = disk.total_space();
-        let available = disk.available_space();
-        let used = total - available;
-        let usage_percent = if total > 0 {
-            (used as f32 / total as f32) * 100.0
-        } else {
-            0.0
-        };
-        
-        let name = disk.name().to_string_lossy().to_string();
-        let mount_point = disk.mount_point().to_string_lossy().to_string();
-        let fs_string = disk.file_system().to_string_lossy().to_string();
-        
-        disks_info.push(DiskInfo {
-            name,
-            mount_point,
-            available_space: available,
-            total_space: total,
-            file_system: fs_string,
-            is_removable: disk.is_removable(),
-            usage_percent,
-        });
-    }
-    
-    // Проверяем, изменились ли данные существенно, чтобы не обновлять без необходимости
-    let mut need_update = true;
-    {
-        let current_disks = cache.data.read().unwrap();
-        if current_disks.len() == disks_info.len() {
-            // Обновляем только если данные изменились более чем на 1%
-            need_update = false;
-            for (i, disk) in current_disks.iter().enumerate() {
-                if (disk.usage_percent - disks_info[i].usage_percent).abs() > 1.0 ||
-                   (disk.available_space as f64 / disk.total_space as f64) - 
-                   (disks_info[i].available_space as f64 / disks_info[i].total_space as f64) > 0.01 {
-                    need_update = true;
-                    break;
-                }
-            }
-        }
-    }
-    
-    if need_update {
-        // Обновляем данные в кэше только если есть реальные изменения
-        let mut data = cache.data.write().unwrap();
-        *data = disks_info;
-    }
-    
-    // Обновляем время последнего обновления в любом случае
-    let mut last_update = cache.last_update.write().unwrap();
-    *last_update = Instant::now();
-}
-
-// ------ Утилиты для получения данных ------
-
-// Кэшируем некоторые данные, которые редко меняются
-// lazy_static! {
-//     static ref CPU_DETAILS_CACHE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
-//     static ref CPU_DETAILS_CACHE_TIME: Mutex<std::time::Instant> = Mutex::new(std::time::Instant::now());
-//     static ref CPU_TEMPERATURE: Mutex<Option<f32>> = Mutex::new(None);
-//     static ref CPU_THREADS: Mutex<Option<usize>> = Mutex::new(None);
-// }
-
-// Оптимизированная функция для получения данных о процессоре с учетом потенциальных таймаутов
-#[cfg(target_os = "windows")]
-fn get_cpu_details() -> HashMap<String, String> {
-    // Выполняем команду в отдельном потоке с таймаутом
-    let guard = std::thread::spawn(|| {
-        let mut result: HashMap<String, String> = HashMap::new();
-        
-        // На Windows используем wmic для получения дополнительной информации
-        if let Ok(output) = Command::new("wmic")
-            .args(["cpu", "get", "Name,NumberOfCores,ThreadCount,MaxClockSpeed,Caption,Description,Architecture,Manufacturer,ProcessorId,L2CacheSize,L3CacheSize,Stepping,Family", "/format:list"])
-            .output() 
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                for line in output_str.lines() {
-                    if line.is_empty() {
-                        continue;
-                    }
-                    
-                    if let Some(sep_pos) = line.find('=') {
-                        let key = line[..sep_pos].trim().to_string();
-                        let value = line[sep_pos + 1..].trim().to_string();
-                        result.insert(key, value);
-                    }
-                }
-            }
-        }
-        
-        result
-    });
-    
-    // Ждем выполнения потока с таймаутом
-    match guard.join() {
-        Ok(details) => details,
-        Err(_) => {
-            println!("[ERROR] Таймаут получения данных о процессоре");
-            // Заглушка в случае таймаута
-            HashMap::new()
-        }
-    }
-}
-
 // Функция для получения деталей процессора с кэшированием
 fn get_cpu_details_cached() -> HashMap<String, String> {
     let mut cache = CPU_DETAILS_CACHE.lock().unwrap();
@@ -950,7 +790,7 @@ fn get_cpu_details_cached() -> HashMap<String, String> {
     
     // Если нет данных в кэше или они устарели, получаем новые
     println!("[SystemInfo] Обновление кэша данных о процессоре");
-    let details = get_cpu_details();
+    let details = get_cpu_details_fresh();
     *cache = Some(details.clone());
     *cache_time = std::time::Instant::now();
     
@@ -1077,16 +917,18 @@ fn get_system_info_internal() -> SystemInfo {
         0.0
     };
     
-    // Для типа памяти и частоты используем константы, так как sysinfo это не предоставляет
-    // В реальном приложении можно использовать WMI для Windows или другие методы
+    // Создаем объект системной информации
     let memory = MemoryInfo {
-        total_memory: total_mem,
-        used_memory: used_mem,
-        free_memory: free_mem,
-        available_memory: available_mem,
-        usage_percent: mem_usage_percent,
-        memory_type: "DDR4".to_string(), // Заглушка, в реальном приложении нужен другой метод
-        frequency: "3200 MHz".to_string(), // Заглушка
+        total: total_mem,
+        used: used_mem,
+        free: free_mem,
+        available: available_mem,
+        usage_percentage: mem_usage_percent as f64,
+        type_ram: String::from("Unknown"),
+        swap_total: 0,
+        swap_used: 0,
+        swap_free: 0,
+        swap_usage_percentage: 0.0,
     };
     
     SystemInfo {
@@ -1102,40 +944,6 @@ fn convert_to_gb(bytes: u64) -> f64 {
 
 fn convert_to_mb(bytes: u64) -> f64 {
     bytes as f64 / 1024.0 / 1024.0
-}
-
-// Удаляем дублирующуюся функцию get_cpu_details, оставляем только одну реализацию
-#[cfg(target_os = "linux")]
-fn get_cpu_details() -> HashMap<String, String> {
-    let cpu_details = HashMap::new();
-    
-    // На Linux читаем /proc/cpuinfo
-    if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
-        for line in cpuinfo.lines() {
-            if line.is_empty() {
-                continue;
-            }
-            
-            if let Some(sep_pos) = line.find(':') {
-                let key = line[..sep_pos].trim().to_string();
-                let value = line[sep_pos + 1..].trim().to_string();
-                
-                if key == "model name" || key == "cpu MHz" || key == "vendor_id" || 
-                   key == "cache size" || key == "cpu cores" || key == "processor" ||
-                   key == "stepping" || key == "cpu family" {
-                    cpu_details.insert(key, value);
-                }
-            }
-        }
-    }
-    
-    cpu_details
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
-fn get_cpu_details() -> HashMap<String, String> {
-    // Заглушка для других ОС
-    HashMap::new()
 }
 
 // Функция для получения температуры процессора - упрощенная версия для экономии ресурсов
@@ -1350,4 +1158,232 @@ fn get_system_process_info() -> (usize, usize, usize) {
            processes, threads, handles);
     
     (processes, threads, handles)
+}
+
+// Функция для обновления данных о памяти - оптимизированная версия
+fn update_memory_data(cache: &MemoryCache) {
+    // Проверяем активен ли мониторинг, если нет - не обновляем
+    if !is_monitoring_active() {
+        return;
+    }
+
+    // Ограничиваем частоту обновления данных о памяти
+    {
+        let last_update = cache.last_update.read().unwrap();
+        if last_update.elapsed() < Duration::from_millis(100) {
+            // Возвращаемся без обновления при слишком частых вызовах
+            return;
+        }
+    }
+
+    // Получаем данные о памяти
+    let mut sys = System::new_all();
+    sys.refresh_memory(); // Только память обновляем
+    
+    // Конвертируем в нужные единицы
+    let total = sys.total_memory();
+    let used = sys.used_memory();
+    let free = sys.free_memory();
+    let available = sys.available_memory();
+    
+    // Получаем информацию о виртуальной памяти
+    let swap_total = sys.total_swap();
+    let swap_used = sys.used_swap();
+    
+    // Вычисляем процент использования
+    let usage_percent = if total > 0 {
+        (used as f32 / total as f32) * 100.0
+    } else {
+        0.0
+    };
+    
+    // Вычисляем процент использования виртуальной памяти
+    let virtual_memory_percent = if swap_total > 0 {
+        (swap_used as f32 / swap_total as f32) * 100.0
+    } else {
+        0.0
+    };
+    
+    // Получаем дополнительную информацию о памяти через WMI
+    let mut memory_type = String::from("Unknown");
+    let mut memory_speed = String::from("Unknown");
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Получаем тип оперативной памяти
+        if let Ok(output) = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty SMBIOSMemoryType"
+            ])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                let memory_type_id = output_str.trim().parse::<u32>().unwrap_or(0);
+                memory_type = match memory_type_id {
+                    0 => String::from("Unknown"),
+                    1 => String::from("Other"),
+                    2 => String::from("DRAM"),
+                    3 => String::from("Synchronous DRAM"),
+                    4 => String::from("Cache DRAM"),
+                    5 => String::from("EDO"),
+                    6 => String::from("EDRAM"),
+                    7 => String::from("VRAM"),
+                    8 => String::from("SRAM"),
+                    9 => String::from("RAM"),
+                    10 => String::from("ROM"),
+                    11 => String::from("Flash"),
+                    12 => String::from("EEPROM"),
+                    13 => String::from("FEPROM"),
+                    14 => String::from("EPROM"),
+                    15 => String::from("CDRAM"),
+                    16 => String::from("3DRAM"),
+                    17 => String::from("SDRAM"),
+                    18 => String::from("SGRAM"),
+                    19 => String::from("RDRAM"),
+                    20 => String::from("DDR"),
+                    21 => String::from("DDR2"),
+                    22 => String::from("DDR2 FB-DIMM"),
+                    24 => String::from("DDR3"),
+                    26 => String::from("DDR4"),
+                    34 => String::from("DDR5"),
+                    _ => format!("Type_{}", memory_type_id),
+                };
+            }
+        }
+        
+        // Получаем скорость памяти (в МГц)
+        if let Ok(output) = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty Speed"
+            ])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(speed) = output_str.trim().parse::<u32>() {
+                    memory_speed = format!("{} МГц", speed);
+                }
+            }
+        }
+    }
+    
+    // Если тип памяти не определен, пытаемся определить через косвенные признаки
+    if memory_type == "Unknown" {
+        // Современные системы обычно используют DDR4 или DDR5
+        if available > 32 * 1024 * 1024 * 1024 { // Если памяти больше 32 ГБ, вероятно DDR5
+            memory_type = String::from("DDR5");
+        } else {
+            memory_type = String::from("DDR4");
+        }
+    }
+    
+    // Проверяем, нужно ли обновлять данные (изменение > 0.5%)
+    let mut need_update = false;
+    {
+        let current_data = cache.data.read().unwrap();
+        // Обновляем только если процент использования изменился существенно
+        if (current_data.usage_percentage - usage_percent as f64).abs() > 0.5 {
+            need_update = true;
+        }
+    }
+    
+    if need_update {
+        // Обновляем данные в кэше только при существенных изменениях
+        let mut data = cache.data.write().unwrap();
+        data.total = total;
+        data.used = used;
+        data.free = free;
+        data.available = available;
+        data.usage_percentage = usage_percent as f64;
+        
+        data.swap_total = swap_total;
+        data.swap_used = swap_used;
+        data.swap_free = swap_total.saturating_sub(swap_used);
+        data.swap_usage_percentage = virtual_memory_percent as f64;
+        
+        // Обновляем статические данные о типе памяти
+        data.type_ram = memory_type;
+    }
+    
+    // Обновляем время последнего обновления
+    let mut last_update = cache.last_update.write().unwrap();
+    *last_update = Instant::now();
+}
+
+// Функция для обновления данных о дисках - с оптимизацией
+fn update_disk_data(cache: &DiskCache) {
+    // Проверяем активен ли мониторинг, если нет - не обновляем
+    if !is_monitoring_active() {
+        return;
+    }
+
+    // Ограничиваем частоту реального обновления данных о дисках, 
+    // но при этом сохраняем частоту вызова для UI
+    {
+        let last_update = cache.last_update.read().unwrap();
+        if last_update.elapsed() < Duration::from_millis(500) {
+            // Просто возвращаемся без обновления, чтобы не тратить ресурсы
+            return;
+        }
+    }
+
+    // Получаем данные о дисках
+    let disks = Disks::new();
+    let mut disks_info = Vec::new();
+    
+    for disk in disks.iter() {
+        let total = disk.total_space();
+        let available = disk.available_space();
+        let used = total - available;
+        let usage_percent = if total > 0 {
+            (used as f32 / total as f32) * 100.0
+        } else {
+            0.0
+        };
+        
+        let name = disk.name().to_string_lossy().to_string();
+        let mount_point = disk.mount_point().to_string_lossy().to_string();
+        let fs_string = disk.file_system().to_string_lossy().to_string();
+        
+        disks_info.push(DiskInfo {
+            name,
+            mount_point,
+            available_space: available,
+            total_space: total,
+            file_system: fs_string,
+            is_removable: disk.is_removable(),
+            usage_percent,
+        });
+    }
+    
+    // Проверяем, изменились ли данные существенно, чтобы не обновлять без необходимости
+    let mut need_update = true;
+    {
+        let current_disks = cache.data.read().unwrap();
+        if current_disks.len() == disks_info.len() {
+            // Обновляем только если данные изменились более чем на 1%
+            need_update = false;
+            for (i, disk) in current_disks.iter().enumerate() {
+                if (disk.usage_percent - disks_info[i].usage_percent).abs() > 1.0 ||
+                   (disk.available_space as f64 / disk.total_space as f64) - 
+                   (disks_info[i].available_space as f64 / disks_info[i].total_space as f64) > 0.01 {
+                    need_update = true;
+                    break;
+                }
+            }
+        }
+    }
+    
+    if need_update {
+        // Обновляем данные в кэше только если есть реальные изменения
+        let mut data = cache.data.write().unwrap();
+        *data = disks_info;
+    }
+    
+    // Обновляем время последнего обновления в любом случае
+    let mut last_update = cache.last_update.write().unwrap();
+    *last_update = Instant::now();
 } 

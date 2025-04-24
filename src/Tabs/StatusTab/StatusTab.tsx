@@ -31,13 +31,16 @@ interface ProcessorInfo {
 }
 
 interface MemoryInfo {
-  total_memory: number;
-  used_memory: number;
-  available_memory: number;
-  free_memory: number;
-  usage_percent: number;
-  memory_type: string;
-  frequency: string;
+  total: number;
+  used: number;
+  available: number;
+  free: number;
+  usage_percentage: number;
+  type_ram: string;        // DDR4, DDR5 и т.д.
+  swap_total: number;      // Общее количество виртуальной памяти
+  swap_used: number;       // Используемое количество виртуальной памяти  
+  swap_free: number;       // Свободное количество виртуальной памяти
+  swap_usage_percentage: number; // Процент использования виртуальной памяти
 }
 
 interface DiskInfo {
@@ -283,14 +286,6 @@ const StatusTab: React.FC = () => {
                 <div className="gauges-container">
                   <div className="gauge-with-label">
                     <CircularIndicator
-                      value={systemInfo.cpu.temperature || 0}
-                      color={getColorForTemperature(systemInfo.cpu.temperature || 0)}
-                      text={`${Math.round(systemInfo.cpu.temperature || 0)} C`}
-                      label="Температура"
-                    />
-                  </div>
-                  <div className="gauge-with-label">
-                    <CircularIndicator
                       value={systemInfo.cpu.usage || 0}
                       color={getColorForPercentage(systemInfo.cpu.usage || 0)}
                       text={`${(systemInfo.cpu.usage || 0).toFixed(1)}%`}
@@ -326,14 +321,6 @@ const StatusTab: React.FC = () => {
                 </div>
                 
                 <div className="gauges-container">
-                  <div className="gauge-with-label">
-                    <CircularIndicator
-                      value={systemInfo.gpu.temperature || 0}
-                      color={getColorForTemperature(systemInfo.gpu.temperature || 0)}
-                      text={`${Math.round(systemInfo.gpu.temperature || 0)} C`}
-                      label="Температура"
-                    />
-                  </div>
                   <div className="gauge-with-label">
                     <CircularIndicator
                       value={systemInfo.gpu.usage || 0}
@@ -407,38 +394,56 @@ const StatusTab: React.FC = () => {
           {systemInfo.memory ? (
             <div className="system-section">
               <h3 className="section-header">Оперативная память</h3>
-              <div className="processor-model">{systemInfo.memory.memory_type || 'Неизвестный тип памяти'}</div>
+              <div className="processor-model">Оперативная память</div>
               
               <div className="info-block">
                 <div className="info-text">
                   <div className="info-row">
                     <span>Тип памяти:</span>
-                    <span>{systemInfo.memory.memory_type || 'Нет данных'}</span>
+                    <span>{systemInfo.memory.type_ram || 'Нет данных'}</span>
                   </div>
                   <div className="info-row">
                     <span>Объем памяти:</span>
-                    <span>{systemInfo.memory.total_memory ? formatBytes(systemInfo.memory.total_memory) : 'Нет данных'}</span>
+                    <span>{systemInfo.memory.total ? formatBytes(systemInfo.memory.total) : 'Нет данных'}</span>
                   </div>
                   <div className="info-row">
-                    <span>Тактовая частота:</span>
-                    <span>{systemInfo.memory.frequency || 'Нет данных'}</span>
+                    <span>Использовано RAM:</span>
+                    <span>{systemInfo.memory.used ? formatBytes(systemInfo.memory.used) : 'Нет данных'}</span>
                   </div>
                   <div className="info-row">
-                    <span>Использовано:</span>
-                    <span>{systemInfo.memory.used_memory ? formatBytes(systemInfo.memory.used_memory) : 'Нет данных'}</span>
+                    <span>Доступно RAM:</span>
+                    <span>{systemInfo.memory.available ? formatBytes(systemInfo.memory.available) : 'Нет данных'}</span>
                   </div>
                   <div className="info-row">
-                    <span>Доступно:</span>
-                    <span>{systemInfo.memory.available_memory ? formatBytes(systemInfo.memory.available_memory) : 'Нет данных'}</span>
+                    <span>Виртуальная память:</span>
+                    <span>{systemInfo.memory.swap_total ? formatBytes(systemInfo.memory.swap_total) : 'Нет данных'}</span>
+                  </div>
+                  <div className="info-row">
+                    <span>Использование вирт. памяти:</span>
+                    <span>{systemInfo.memory.swap_used ? formatBytes(systemInfo.memory.swap_used) : 'Нет данных'}</span>
                   </div>
                 </div>
                 
-                <div className="memory-gauge">
-                  <CircularIndicator
-                    value={systemInfo.memory.usage_percent || 0}
-                    color={getColorForPercentage(systemInfo.memory.usage_percent || 0)}
-                    text={`${Math.round(systemInfo.memory.usage_percent || 0)}%`}
-                  />
+                <div className="gauges-container memory-gauges">
+                  <div className="gauge-with-label">
+                    <CircularIndicator
+                      value={systemInfo.memory.usage_percentage || 0}
+                      color={getColorForPercentage(systemInfo.memory.usage_percentage || 0)}
+                      text={`${Math.round(systemInfo.memory.usage_percentage || 0)}%`}
+                      label="RAM"
+                    />
+                  </div>
+                  
+                  {systemInfo.memory.swap_usage_percentage !== undefined && (
+                    <div className="gauge-with-label">
+                      <CircularIndicator
+                        value={systemInfo.memory.swap_usage_percentage || 0}
+                        color={getColorForPercentage(systemInfo.memory.swap_usage_percentage || 0)}
+                        text={`${Math.round(systemInfo.memory.swap_usage_percentage || 0)}%`}
+                        label="SWAP"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
