@@ -11,7 +11,7 @@ use lazy_static::lazy_static;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 // Добавляем импорт нового модуля
-use crate::utils::cpu_frequency::{get_current_cpu_frequency, get_base_cpu_frequency};
+use crate::utils::cpu_frequency::{get_current_cpu_frequency, get_base_cpu_frequency, get_cpu_physical_cores, get_cpu_logical_cores};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ProcessorInfo {
@@ -27,8 +27,9 @@ pub struct ProcessorInfo {
     pub vendor_id: String,
     pub model_name: String,
     pub cache_size: String,
-    pub stepping: String,
-    pub family: String,
+    pub processes: usize,     // количество процессов в системе
+    pub system_threads: usize, // количество потоков в системе
+    pub handles: usize,       // количество дескрипторов в системе
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -457,10 +458,14 @@ fn update_cpu_static_data(cache: &CpuCache) {
         .map(|s| s.parse::<f64>().unwrap_or(0.0) / 1000.0) // Преобразуем МГц в ГГц
         .unwrap_or(0.0);
     
-    // Получаем количество потоков
-    let threads = cpu_details.get("ThreadCount")
-        .map(|s| s.parse::<usize>().unwrap_or(sys.cpus().len()))
-        .unwrap_or(sys.cpus().len());
+    // Получаем количество логических процессоров (потоков)
+    let threads = get_cpu_logical_cores();
+    
+    // Получаем количество физических ядер из специализированной функции
+    let cores = get_cpu_physical_cores();
+    
+    // Получаем информацию о процессах, потоках и дескрипторах
+    let (processes, system_threads, handles) = get_system_process_info();
     
     // Получаем архитектуру
     let architecture = cpu_details.get("Architecture")
@@ -486,8 +491,8 @@ fn update_cpu_static_data(cache: &CpuCache) {
     {
         let mut data = cache.data.write().unwrap();
         data.name = cpu_name.clone();
-        data.cores = sys.cpus().len() / 2;
-        data.threads = threads;
+        data.cores = cores;  // Используем количество ядер из модуля cpu_frequency
+        data.threads = threads;  // Используем количество потоков из модуля cpu_frequency
         data.base_frequency = base_frequency;
         data.max_frequency = max_frequency;
         data.architecture = architecture;
@@ -498,12 +503,10 @@ fn update_cpu_static_data(cache: &CpuCache) {
             cpu_details.get("model name").cloned().unwrap_or(cpu_name)
         });
         data.cache_size = cache_size;
-        data.stepping = cpu_details.get("Stepping").cloned().unwrap_or_else(|| {
-            cpu_details.get("stepping").cloned().unwrap_or("Unknown".to_string())
-        });
-        data.family = cpu_details.get("Family").cloned().unwrap_or_else(|| {
-            cpu_details.get("cpu family").cloned().unwrap_or("Unknown".to_string())
-        });
+        // Обновляем новые поля
+        data.processes = processes;
+        data.system_threads = system_threads;
+        data.handles = handles;
     }
     
     // Обновляем время последнего обновления
@@ -732,19 +735,12 @@ fn get_system_info_internal() -> SystemInfo {
         .map(|s| s.parse::<f64>().unwrap_or(0.0) / 1000.0) // Преобразуем МГц в ГГц
         .unwrap_or(0.0);
     
-    // Получаем количество потоков с кэшированием
-    let threads = {
-        let mut threads_cache = CPU_THREADS.lock().unwrap();
-        if let Some(t) = *threads_cache {
-            t
-        } else {
-            let t = cpu_details.get("ThreadCount")
-                .map(|s| s.parse::<usize>().unwrap_or(sys.cpus().len()))
-                .unwrap_or(sys.cpus().len());
-            *threads_cache = Some(t);
-            t
-        }
-    };
+    // Используем специализированные функции из модуля cpu_frequency
+    let cores = get_cpu_physical_cores();
+    let threads = get_cpu_logical_cores();
+    
+    // Получаем информацию о процессах, потоках и дескрипторах
+    let (processes, system_threads, handles) = get_system_process_info();
     
     // Получаем архитектуру
     let architecture = cpu_details.get("Architecture")
@@ -771,7 +767,7 @@ fn get_system_info_internal() -> SystemInfo {
         name: cpu_name.clone(),
         usage: total_usage,
         temperature: cpu_temp,
-        cores: sys.cpus().len() / 2, // Приблизительно, может быть неточно
+        cores: cores,
         threads: threads,
         frequency: current_frequency,
         base_frequency: base_frequency,
@@ -784,12 +780,9 @@ fn get_system_info_internal() -> SystemInfo {
             cpu_details.get("model name").cloned().unwrap_or(cpu_name)
         }),
         cache_size: cache_size,
-        stepping: cpu_details.get("Stepping").cloned().unwrap_or_else(|| {
-            cpu_details.get("stepping").cloned().unwrap_or("Unknown".to_string())
-        }),
-        family: cpu_details.get("Family").cloned().unwrap_or_else(|| {
-            cpu_details.get("cpu family").cloned().unwrap_or("Unknown".to_string())
-        }),
+        processes: processes,
+        system_threads: system_threads,
+        handles: handles,
     };
     
     // Получение информации о дисках
@@ -1183,4 +1176,89 @@ pub fn update_processor_info_with_dynamic_data(
     processor_info.frequency = dynamic_data.frequency;
     processor_info.temperature = dynamic_data.temperature;
     processor_info
+}
+
+// Функция для получения информации о процессах, потоках и дескрипторах
+fn get_system_process_info() -> (usize, usize, usize) {
+    let mut processes = 0;
+    let mut threads = 0;
+    let mut handles = 0;
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Используем PowerShell для получения данных через WMI
+        if let Ok(output) = Command::new("powershell")
+            .args(["-NoProfile", "-Command", "Get-Process | Measure-Object | Select-Object -ExpandProperty Count"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(count) = output_str.trim().parse::<usize>() {
+                    processes = count;
+                }
+            }
+        }
+        
+        // Получаем количество потоков во всех процессах - исправлено для правильного получения суммы
+        if let Ok(output) = Command::new("powershell")
+            .args(["-NoProfile", "-Command", "(Get-Process | Measure-Object -Property Threads -Sum).Sum"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(count) = output_str.trim().parse::<usize>() {
+                    threads = count;
+                    println!("[DEBUG] Обнаружено потоков: {}", threads);
+                }
+            }
+        }
+        
+        // Резервный способ получения потоков, если первый не сработал
+        if threads == 0 {
+            if let Ok(output) = Command::new("powershell")
+                .args(["-NoProfile", "-Command", "$sum = 0; Get-Process | ForEach-Object { $sum += $_.Threads.Count }; $sum"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(count) = output_str.trim().parse::<usize>() {
+                        threads = count;
+                        println!("[DEBUG] Обнаружено потоков (резервный метод): {}", threads);
+                    }
+                }
+            }
+        }
+        
+        // Получаем количество дескрипторов
+        if let Ok(output) = Command::new("powershell")
+            .args(["-NoProfile", "-Command", "(Get-Process | Measure-Object -Property Handles -Sum).Sum"])
+            .output() 
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(count) = output_str.trim().parse::<usize>() {
+                    handles = count;
+                }
+            }
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        // На других ОС используем sysinfo для процессов
+        let mut sys = System::new_all();
+        sys.refresh_processes();
+        processes = sys.processes().len();
+        
+        // Пытаемся подсчитать потоки на других ОС
+        for (_pid, process) in sys.processes() {
+            if let Some(thread_count) = process.thread_count() {
+                threads += thread_count;
+            }
+        }
+        
+        // Заглушка для дескрипторов на других ОС
+        handles = 0;
+    }
+    
+    println!("[DEBUG] Статистика процессов: {} процессов, {} потоков, {} дескрипторов", 
+           processes, threads, handles);
+    
+    (processes, threads, handles)
 } 

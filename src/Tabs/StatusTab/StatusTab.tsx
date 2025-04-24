@@ -25,8 +25,9 @@ interface ProcessorInfo {
   vendor_id: string;
   model_name: string;
   cache_size: string;
-  stepping: string;
-  family: string;
+  processes: number;      // количество процессов в системе
+  system_threads: number; // количество потоков в системе
+  handles: number;        // количество дескрипторов в системе
 }
 
 interface MemoryInfo {
@@ -266,12 +267,16 @@ const StatusTab: React.FC = () => {
                     <span>{systemInfo.cpu.vendor_id || 'Нет данных'}</span>
                   </div>
                   <div className="info-row">
-                    <span>Семейство:</span>
-                    <span>{systemInfo.cpu.family || 'Нет данных'}</span>
+                    <span>Процессы:</span>
+                    <span>{systemInfo.cpu.processes || 'Нет данных'}</span>
                   </div>
                   <div className="info-row">
-                    <span>Степпинг:</span>
-                    <span>{systemInfo.cpu.stepping || 'Нет данных'}</span>
+                    <span>Потоки:</span>
+                    <span>{systemInfo.cpu.system_threads || 'Нет данных'}</span>
+                  </div>
+                  <div className="info-row">
+                    <span>Дескрипторы:</span>
+                    <span>{systemInfo.cpu.handles || 'Нет данных'}</span>
                   </div>
                 </div>
                 

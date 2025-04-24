@@ -454,6 +454,39 @@ fn initialize_cpu_info_if_needed() {
     let max_freq_initialized = CPU_MAX_FREQUENCY.lock().unwrap().is_some();
     
     if !base_freq_initialized || !max_freq_initialized {
+        // Сначала проверяем модель процессора
+        let mut processor_model = String::new();
+        
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(output) = Command::new("powershell")
+                .args(["-NoProfile", "-Command", "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty Name"])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    processor_model = output_str.trim().to_string();
+                    *CPU_MODEL.lock().unwrap() = processor_model.clone();
+                }
+            }
+        }
+        
+        // Проверяем, является ли процессор Intel i5-13400
+        if processor_model.contains("i5-13400") {
+            println!("[DEBUG] Обнаружен процессор Intel i5-13400");
+            
+            // Принудительно задаем значения для i5-13400
+            *CPU_PHYSICAL_CORES.lock().unwrap() = 10;  // 6 P-cores + 4 E-cores
+            *CPU_LOGICAL_CORES.lock().unwrap() = 16;   // 6 P-cores с HT (12 потоков) + 4 E-cores без HT
+            *CPU_BASE_FREQUENCY.lock().unwrap() = Some(INTEL_I5_13400_BASE_SPEED);
+            *CPU_MAX_FREQUENCY.lock().unwrap() = Some(INTEL_I5_13400_MAX_SPEED);
+            
+            println!("[DEBUG] Инициализация i5-13400: База: {} ГГц, Макс: {} ГГц, Физические ядра: {}, Логические ядра: {}", 
+                 INTEL_I5_13400_BASE_SPEED, INTEL_I5_13400_MAX_SPEED, 10, 16);
+                 
+            return;
+        }
+        
+        // Стандартная инициализация для других процессоров
         let (base_freq, max_freq) = get_cpu_info_from_cpuid();
         
         // Сохраняем базовую частоту
@@ -579,4 +612,215 @@ pub fn get_cpu_frequency_from_sysinfo() -> f64 {
            cpu_load, result);
     
     result
+}
+
+/// Получает количество физических ядер процессора
+pub fn get_cpu_physical_cores() -> usize {
+    // Инициализируем информацию о процессоре, если это первый запуск
+    initialize_cpu_info_if_needed();
+    
+    // Сначала проверяем модель процессора на i5-13400
+    let cpu_model = CPU_MODEL.lock().unwrap().clone();
+    if cpu_model.contains("i5-13400") {
+        return 10; // Принудительно возвращаем 10 ядер для i5-13400
+    }
+    
+    // Пробуем получить количество ядер из кэша
+    let cores = *CPU_PHYSICAL_CORES.lock().unwrap();
+    if cores > 0 {
+        return cores;
+    }
+    
+    // Остальные проверки для других моделей процессоров...
+    // Код для других процессоров остается прежним
+    
+    // Для Windows используем WMI запрос для точного определения числа ядер
+    #[cfg(target_os = "windows")]
+    {
+        let commands = [
+            // Попытка #1: Используем более точную команду для определения ядер
+            "try { (Get-CimInstance -ClassName Win32_Processor).NumberOfCores } catch { 0 }",
+            // Попытка #2: Альтернативный подход через WMI
+            "try { (Get-WmiObject -Class Win32_Processor).NumberOfCores } catch { 0 }",
+            // Попытка #3: Используем PowerShell 7+ команду
+            "try { (Get-CimInstance -ClassName CIM_Processor).NumberOfEnabledCores } catch { 0 }"
+        ];
+        
+        for cmd in commands {
+            if let Ok(output) = Command::new("powershell")
+                .args(["-NoProfile", "-Command", cmd])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(num_cores) = output_str.trim().parse::<usize>() {
+                        if num_cores > 0 {
+                            // Особая проверка для i5-13400, где WMI может возвращать некорректное значение
+                            if cpu_model.contains("i5-13400") {
+                                *CPU_PHYSICAL_CORES.lock().unwrap() = 10;
+                                return 10;
+                            }
+                            
+                            *CPU_PHYSICAL_CORES.lock().unwrap() = num_cores;
+                            return num_cores;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Пробуем получить через sysinfo
+    let sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
+    if let Some(physical_cores) = sys.physical_core_count() {
+        if physical_cores > 0 {
+            // Особая проверка для i5-13400
+            if cpu_model.contains("i5-13400") {
+                *CPU_PHYSICAL_CORES.lock().unwrap() = 10;
+                return 10;
+            }
+            
+            *CPU_PHYSICAL_CORES.lock().unwrap() = physical_cores;
+            return physical_cores;
+        }
+    }
+    
+    // Определяем количество ядер по модели процессора
+    if cpu_model.contains("Intel") {
+        if cpu_model.contains("13th Gen") || cpu_model.contains("i5-13") {
+            // 13-е поколение i5 обычно имеет 6P+4E или 6P+0E ядер
+            if cpu_model.contains("13400") || cpu_model.contains("13500") {
+                *CPU_PHYSICAL_CORES.lock().unwrap() = 10;
+                return 10;
+            } else if cpu_model.contains("13600") {
+                *CPU_PHYSICAL_CORES.lock().unwrap() = 14; // 6P+8E
+                return 14;
+            }
+        }
+    }
+    
+    // Если всё еще не удалось определить, оцениваем по количеству логических ядер
+    let logical_cores = get_cpu_logical_cores();
+    let estimated_cores = if logical_cores % 2 == 0 {
+        logical_cores / 2 // Предполагаем SMT/HT для большинства процессоров
+    } else {
+        logical_cores // Необычный случай, возможно некоторые ядра без HT
+    };
+    
+    *CPU_PHYSICAL_CORES.lock().unwrap() = estimated_cores;
+    estimated_cores
+}
+
+/// Получает количество логических процессоров (потоков) процессора
+pub fn get_cpu_logical_cores() -> usize {
+    // Инициализируем информацию о процессоре, если это первый запуск
+    initialize_cpu_info_if_needed();
+    
+    // Сначала проверяем модель процессора на i5-13400
+    let cpu_model = CPU_MODEL.lock().unwrap().clone();
+    if cpu_model.contains("i5-13400") {
+        return 16; // Принудительно возвращаем 16 потоков для i5-13400
+    }
+    
+    // Пробуем получить количество потоков из кэша
+    let cores = *CPU_LOGICAL_CORES.lock().unwrap();
+    if cores > 0 {
+        return cores;
+    }
+    
+    // Для Windows используем WMI запрос для точного определения числа логических ядер
+    #[cfg(target_os = "windows")]
+    {
+        let commands = [
+            // Попытка #1: Стандартный способ получения числа логических ядер
+            "try { (Get-CimInstance -ClassName Win32_Processor).NumberOfLogicalProcessors } catch { 0 }",
+            // Попытка #2: Альтернативный подход через WMI
+            "try { (Get-WmiObject -Class Win32_Processor).NumberOfLogicalProcessors } catch { 0 }",
+            // Попытка #3: Метод через Environment
+            "try { [Environment]::ProcessorCount } catch { 0 }"
+        ];
+        
+        for cmd in commands {
+            if let Ok(output) = Command::new("powershell")
+                .args(["-NoProfile", "-Command", cmd])
+                .output() 
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(num_threads) = output_str.trim().parse::<usize>() {
+                        if num_threads > 0 {
+                            // Особая проверка для i5-13400
+                            if cpu_model.contains("i5-13400") {
+                                *CPU_LOGICAL_CORES.lock().unwrap() = 16;
+                                return 16;
+                            }
+                            
+                            *CPU_LOGICAL_CORES.lock().unwrap() = num_threads;
+                            return num_threads;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Пробуем получить через sysinfo
+    let sys = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
+    let logical_cores = sys.cpus().len();
+    if logical_cores > 0 {
+        // Особая проверка для i5-13400
+        if cpu_model.contains("i5-13400") {
+            *CPU_LOGICAL_CORES.lock().unwrap() = 16;
+            return 16;
+        }
+        
+        *CPU_LOGICAL_CORES.lock().unwrap() = logical_cores;
+        return logical_cores;
+    }
+    
+    // Остальной код для других процессоров...
+    
+    // Используем num_cpus если доступен
+    #[cfg(feature = "num_cpus")]
+    {
+        let logical_cores = num_cpus::get();
+        
+        // Особая проверка для i5-13400
+        if cpu_model.contains("i5-13400") {
+            *CPU_LOGICAL_CORES.lock().unwrap() = 16;
+            return 16;
+        }
+        
+        *CPU_LOGICAL_CORES.lock().unwrap() = logical_cores;
+        return logical_cores;
+    }
+    
+    // Определяем по модели процессора, если другие методы не сработали
+    if cpu_model.contains("Intel") {
+        if cpu_model.contains("13th Gen") || cpu_model.contains("i5-13") {
+            if cpu_model.contains("13400") || cpu_model.contains("13500") {
+                *CPU_LOGICAL_CORES.lock().unwrap() = 16; // 6P(12T)+4E
+                return 16;
+            } else if cpu_model.contains("13600") {
+                *CPU_LOGICAL_CORES.lock().unwrap() = 20; // 6P(12T)+8E
+                return 20;
+            }
+        }
+    }
+    
+    // Запасной вариант
+    let default_cores = if get_cpu_physical_cores() > 0 {
+        get_cpu_physical_cores() * 2
+    } else {
+        8 // Разумное значение по умолчанию для современных систем
+    };
+    
+    *CPU_LOGICAL_CORES.lock().unwrap() = default_cores;
+    default_cores
+}
+
+/// Получает название модели процессора
+pub fn get_cpu_model() -> String {
+    // Инициализируем информацию о процессоре, если это первый запуск
+    initialize_cpu_info_if_needed();
+    
+    CPU_MODEL.lock().unwrap().clone()
 } 
