@@ -267,14 +267,16 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
     update_cpu_static_data(&cache.cpu);
     println!("[SystemInfo] Выполнено начальное обновление статических данных CPU");
     
-    // Поток для обновления данных CPU (максимально частое обновление)
+    // Запуск потока обновления данных о CPU
     let cpu_cache = cache.cpu.clone();
     let cpu_app_handle = app_handle.clone();
     thread::spawn(move || {
+        println!("[SystemInfo] Запуск потока обновления CPU");
+        
         loop {
             // Проверяем активен ли мониторинг
             if is_monitoring_active() {
-                // Обновляем только динамические данные CPU (нагрузку и текущую частоту)
+                // Обновляем динамические данные CPU
                 update_cpu_dynamic_data(&cpu_cache);
                 
                 // Отправляем событие обновления CPU
@@ -282,8 +284,8 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
                 let _ = cpu_app_handle.emit("cpu-info-updated", cpu_data);
             }
             
-            // Минимальная задержка для максимальной частоты обновления
-            thread::sleep(Duration::from_millis(1));
+            // Уменьшаем интервал до 50мс для более частых обновлений
+            thread::sleep(Duration::from_millis(50));
         }
     });
     
@@ -316,14 +318,15 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
         }
     });
     
-    // Поток для обновления данных памяти (частое обновление)
+    // Запуск потока обновления данных о памяти
     let memory_cache = cache.memory.clone();
     let memory_app_handle = app_handle.clone();
     thread::spawn(move || {
+        println!("[SystemInfo] Запуск потока обновления памяти");
+        
         loop {
             // Проверяем активен ли мониторинг
             if is_monitoring_active() {
-                // Обновляем данные о памяти
                 update_memory_data(&memory_cache);
                 
                 // Отправляем событие обновления памяти
@@ -331,8 +334,8 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
                 let _ = memory_app_handle.emit("memory-info-updated", memory_data);
             }
             
-            // Минимальная задержка для максимальной частоты обновления
-            thread::sleep(Duration::from_millis(1));
+            // Уменьшаем интервал до 50мс для более частых обновлений
+            thread::sleep(Duration::from_millis(50));
         }
     });
     
@@ -424,8 +427,9 @@ fn update_cpu_dynamic_data(cache: &CpuCache) {
         0.0
     };
     
-    // Получаем текущую частоту процессора
+    // Всегда получаем текущую частоту процессора
     let frequency = get_current_cpu_frequency();
+    println!("[CPU_MONITOR] Обновление частоты: {} ГГц", frequency);
     
     // Получаем температуру процессора, но реже (каждые 5 секунд)
     let temp;
@@ -446,9 +450,8 @@ fn update_cpu_dynamic_data(cache: &CpuCache) {
     let mut data = cache.data.write().unwrap();
     data.usage = total_usage;
     
-    if frequency > 0.1 {
-        data.frequency = frequency;
-    }
+    // Всегда обновляем частоту процессора, независимо от её значения
+    data.frequency = frequency;
     
     if temp.is_some() {
         data.temperature = temp;
@@ -1181,17 +1184,13 @@ fn get_system_process_info() -> (usize, usize, usize) {
 }
 
 // Функция для обновления данных о памяти - оптимизированная версия
-fn update_memory_data(cache: &MemoryCache) {
-    // Проверяем активен ли мониторинг, если нет - не обновляем
-    if !is_monitoring_active() {
-        return;
-    }
-
-    // Ограничиваем частоту обновления данных о памяти
+fn update_memory_data(memory_cache: &MemoryCache) {
+    // Проверяем, прошло ли достаточно времени с момента последнего обновления
+    // Минимальный интервал обновления - 0.1 мс для максимальной частоты
     {
-        let last_update = cache.last_update.read().unwrap();
-        if last_update.elapsed() < Duration::from_millis(100) {
-            // Возвращаемся без обновления при слишком частых вызовах
+        let last_update = memory_cache.last_update.read().unwrap();
+        let now = Instant::now();
+        if now.duration_since(*last_update) < Duration::from_micros(100) {
             return;
         }
     }
@@ -1225,7 +1224,15 @@ fn update_memory_data(cache: &MemoryCache) {
         0.0
     };
     
-    // Получаем дополнительную информацию о памяти через WMI
+    // Статические данные о памяти (обновляем раз в 30 секунд)
+    static mut LAST_STATIC_MEM_UPDATE: Option<Instant> = None;
+    static mut CACHED_MEM_TYPE: Option<String> = None;
+    static mut CACHED_MEM_SPEED: Option<String> = None;
+    static mut CACHED_MEM_NAME: Option<String> = None;
+    static mut CACHED_MEM_PART_NUMBER: Option<String> = None;
+    static mut CACHED_MEM_SLOTS_TOTAL: Option<u32> = None;
+    static mut CACHED_MEM_SLOTS_USED: Option<u32> = None;
+    
     let mut memory_type = String::from("Unknown");
     let mut memory_speed = String::from("Unknown");
     let mut memory_slots_total: u32 = 0;
@@ -1233,166 +1240,198 @@ fn update_memory_data(cache: &MemoryCache) {
     let mut memory_name = String::from("Unknown");
     let mut memory_part_number = String::from("Unknown");
     
-    #[cfg(target_os = "windows")]
-    {
-        // Получаем тип оперативной памяти
-        if let Ok(output) = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty SMBIOSMemoryType"
-            ])
-            .output()
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                let memory_type_id = output_str.trim().parse::<u32>().unwrap_or(0);
-                memory_type = match memory_type_id {
-                    0 => String::from("Unknown"),
-                    1 => String::from("Other"),
-                    2 => String::from("DRAM"),
-                    3 => String::from("Synchronous DRAM"),
-                    4 => String::from("Cache DRAM"),
-                    5 => String::from("EDO"),
-                    6 => String::from("EDRAM"),
-                    7 => String::from("VRAM"),
-                    8 => String::from("SRAM"),
-                    9 => String::from("RAM"),
-                    10 => String::from("ROM"),
-                    11 => String::from("Flash"),
-                    12 => String::from("EEPROM"),
-                    13 => String::from("FEPROM"),
-                    14 => String::from("EPROM"),
-                    15 => String::from("CDRAM"),
-                    16 => String::from("3DRAM"),
-                    17 => String::from("SDRAM"),
-                    18 => String::from("SGRAM"),
-                    19 => String::from("RDRAM"),
-                    20 => String::from("DDR"),
-                    21 => String::from("DDR2"),
-                    22 => String::from("DDR2 FB-DIMM"),
-                    24 => String::from("DDR3"),
-                    26 => String::from("DDR4"),
-                    34 => String::from("DDR5"),
-                    _ => format!("Type_{}", memory_type_id),
-                };
-            }
-        }
+    // Проверяем, нужно ли обновлять статические данные
+    let update_static = unsafe {
+        let now = Instant::now();
+        let should_update = match LAST_STATIC_MEM_UPDATE {
+            Some(last) => now.duration_since(last) > Duration::from_secs(30),
+            None => true
+        };
         
-        // Получаем скорость памяти (в МГц)
-        if let Ok(output) = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty Speed"
-            ])
-            .output()
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                if let Ok(speed) = output_str.trim().parse::<u32>() {
-                    memory_speed = format!("{} МГц", speed);
-                }
-            }
+        if should_update {
+            LAST_STATIC_MEM_UPDATE = Some(now);
+            true
+        } else {
+            // Используем кэшированные значения
+            if let Some(ref val) = CACHED_MEM_TYPE { memory_type = val.clone(); }
+            if let Some(ref val) = CACHED_MEM_SPEED { memory_speed = val.clone(); }
+            if let Some(ref val) = CACHED_MEM_NAME { memory_name = val.clone(); }
+            if let Some(ref val) = CACHED_MEM_PART_NUMBER { memory_part_number = val.clone(); }
+            if let Some(val) = CACHED_MEM_SLOTS_TOTAL { memory_slots_total = val; }
+            if let Some(val) = CACHED_MEM_SLOTS_USED { memory_slots_used = val; }
+            false
         }
-        
-        // Получаем производителя памяти
-        if let Ok(output) = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty Manufacturer"
-            ])
-            .output()
+    };
+    
+    // Получаем дополнительную информацию о памяти через WMI только если нужно обновить статические данные
+    if update_static {
+        #[cfg(target_os = "windows")]
         {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                let manufacturer = output_str.trim();
-                if !manufacturer.is_empty() {
-                    memory_name = manufacturer.to_string();
-                }
-            }
-        }
-        
-        // Получаем номер модели памяти (Part Number)
-        if let Ok(output) = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty PartNumber"
-            ])
-            .output()
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                let part_number = output_str.trim();
-                if !part_number.is_empty() {
-                    memory_part_number = part_number.to_string();
-                }
-            }
-        }
-        
-        // Подсчитываем количество слотов памяти
-        if let Ok(output) = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Get-CimInstance -ClassName Win32_PhysicalMemoryArray | Select-Object -ExpandProperty MemoryDevices"
-            ])
-            .output()
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                if let Ok(slots) = output_str.trim().parse::<u32>() {
-                    memory_slots_total = slots;
-                }
-            }
-        }
-        
-        // Подсчитываем занятые слоты
-        if let Ok(output) = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "(Get-CimInstance -ClassName Win32_PhysicalMemory).Count"
-            ])
-            .output()
-        {
-            if let Ok(output_str) = String::from_utf8(output.stdout) {
-                if let Ok(used_slots) = output_str.trim().parse::<u32>() {
-                    memory_slots_used = used_slots;
-                }
-            }
-        }
-        
-        // Проверяем файл подкачки, если данные еще не получены
-        if swap_total == 0 {
+            // Получаем тип оперативной памяти
             if let Ok(output) = Command::new("powershell")
                 .args([
                     "-NoProfile",
                     "-Command",
-                    "Get-CimInstance Win32_PageFileUsage | Select-Object -Property AllocatedBaseSize, CurrentUsage | ConvertTo-Json"
+                    "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty SMBIOSMemoryType"
                 ])
                 .output()
             {
                 if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    // Ищем значения AllocatedBaseSize и CurrentUsage в JSON
-                    if let Some(allocated_pos) = output_str.find("\"AllocatedBaseSize\":") {
-                        if let Some(end_pos) = output_str[allocated_pos..].find(',') {
-                            let allocated_str = &output_str[allocated_pos + 21..allocated_pos + end_pos];
-                            if let Ok(allocated) = allocated_str.trim().parse::<u64>() {
-                                // Преобразуем МБ в байты
-                                let total_mb = allocated * 1024 * 1024;
-                                
-                                if let Some(current_pos) = output_str.find("\"CurrentUsage\":") {
-                                    if let Some(end_pos) = output_str[current_pos..].find('\n') {
-                                        let current_str = &output_str[current_pos + 15..current_pos + end_pos];
-                                        if let Ok(usage) = current_str.trim().trim_matches(',').trim_matches('}').parse::<u64>() {
-                                            // Преобразуем МБ в байты
-                                            let used_mb = usage * 1024 * 1024;
-                                            
-                                            swap_total = total_mb;
-                                            swap_used = used_mb;
-                                            virtual_memory_percent = if total_mb > 0 {
-                                                (used_mb as f32 / total_mb as f32) * 100.0
-                                            } else {
-                                                0.0
-                                            };
+                    let memory_type_id = output_str.trim().parse::<u32>().unwrap_or(0);
+                    memory_type = match memory_type_id {
+                        0 => String::from("Unknown"),
+                        1 => String::from("Other"),
+                        2 => String::from("DRAM"),
+                        3 => String::from("Synchronous DRAM"),
+                        4 => String::from("Cache DRAM"),
+                        5 => String::from("EDO"),
+                        6 => String::from("EDRAM"),
+                        7 => String::from("VRAM"),
+                        8 => String::from("SRAM"),
+                        9 => String::from("RAM"),
+                        10 => String::from("ROM"),
+                        11 => String::from("Flash"),
+                        12 => String::from("EEPROM"),
+                        13 => String::from("FEPROM"),
+                        14 => String::from("EPROM"),
+                        15 => String::from("CDRAM"),
+                        16 => String::from("3DRAM"),
+                        17 => String::from("SDRAM"),
+                        18 => String::from("SGRAM"),
+                        19 => String::from("RDRAM"),
+                        20 => String::from("DDR"),
+                        21 => String::from("DDR2"),
+                        22 => String::from("DDR2 FB-DIMM"),
+                        24 => String::from("DDR3"),
+                        26 => String::from("DDR4"),
+                        34 => String::from("DDR5"),
+                        _ => format!("Type_{}", memory_type_id),
+                    };
+                    unsafe { CACHED_MEM_TYPE = Some(memory_type.clone()); }
+                }
+            }
+            
+            // Получаем скорость памяти (в МГц)
+            if let Ok(output) = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty Speed"
+                ])
+                .output()
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(speed) = output_str.trim().parse::<u32>() {
+                        memory_speed = format!("{} МГц", speed);
+                        unsafe { CACHED_MEM_SPEED = Some(memory_speed.clone()); }
+                    }
+                }
+            }
+            
+            // Получаем производителя памяти
+            if let Ok(output) = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty Manufacturer"
+                ])
+                .output()
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    let manufacturer = output_str.trim();
+                    if !manufacturer.is_empty() {
+                        memory_name = manufacturer.to_string();
+                        unsafe { CACHED_MEM_NAME = Some(memory_name.clone()); }
+                    }
+                }
+            }
+            
+            // Получаем номер модели памяти (Part Number)
+            if let Ok(output) = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 -ExpandProperty PartNumber"
+                ])
+                .output()
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    let part_number = output_str.trim();
+                    if !part_number.is_empty() {
+                        memory_part_number = part_number.to_string();
+                        unsafe { CACHED_MEM_PART_NUMBER = Some(memory_part_number.clone()); }
+                    }
+                }
+            }
+            
+            // Подсчитываем количество слотов памяти
+            if let Ok(output) = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Get-CimInstance -ClassName Win32_PhysicalMemoryArray | Select-Object -ExpandProperty MemoryDevices"
+                ])
+                .output()
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(slots) = output_str.trim().parse::<u32>() {
+                        memory_slots_total = slots;
+                        unsafe { CACHED_MEM_SLOTS_TOTAL = Some(slots); }
+                    }
+                }
+            }
+            
+            // Подсчитываем занятые слоты
+            if let Ok(output) = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "(Get-CimInstance -ClassName Win32_PhysicalMemory).Count"
+                ])
+                .output()
+            {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    if let Ok(used_slots) = output_str.trim().parse::<u32>() {
+                        memory_slots_used = used_slots;
+                        unsafe { CACHED_MEM_SLOTS_USED = Some(used_slots); }
+                    }
+                }
+            }
+            
+            // Проверяем файл подкачки, если данные еще не получены
+            if swap_total == 0 {
+                if let Ok(output) = Command::new("powershell")
+                    .args([
+                        "-NoProfile",
+                        "-Command",
+                        "Get-CimInstance Win32_PageFileUsage | Select-Object -Property AllocatedBaseSize, CurrentUsage | ConvertTo-Json"
+                    ])
+                    .output()
+                {
+                    if let Ok(output_str) = String::from_utf8(output.stdout) {
+                        // Ищем значения AllocatedBaseSize и CurrentUsage в JSON
+                        if let Some(allocated_pos) = output_str.find("\"AllocatedBaseSize\":") {
+                            if let Some(end_pos) = output_str[allocated_pos..].find(',') {
+                                let allocated_str = &output_str[allocated_pos + 21..allocated_pos + end_pos];
+                                if let Ok(allocated) = allocated_str.trim().parse::<u64>() {
+                                    // Преобразуем МБ в байты
+                                    let total_mb = allocated * 1024 * 1024;
+                                    
+                                    if let Some(current_pos) = output_str.find("\"CurrentUsage\":") {
+                                        if let Some(end_pos) = output_str[current_pos..].find('\n') {
+                                            let current_str = &output_str[current_pos + 15..current_pos + end_pos];
+                                            if let Ok(usage) = current_str.trim().trim_matches(',').trim_matches('}').parse::<u64>() {
+                                                // Преобразуем МБ в байты
+                                                let used_mb = usage * 1024 * 1024;
+                                                
+                                                swap_total = total_mb;
+                                                swap_used = used_mb;
+                                                virtual_memory_percent = if total_mb > 0 {
+                                                    (used_mb as f32 / total_mb as f32) * 100.0
+                                                } else {
+                                                    0.0
+                                                };
+                                            }
                                         }
                                     }
                                 }
@@ -1412,6 +1451,7 @@ fn update_memory_data(cache: &MemoryCache) {
         } else {
             memory_type = String::from("DDR4");
         }
+        unsafe { CACHED_MEM_TYPE = Some(memory_type.clone()); }
     }
     
     // Если слоты все еще не определены, используем приблизительную оценку
@@ -1419,21 +1459,25 @@ fn update_memory_data(cache: &MemoryCache) {
         // Большинство современных ПК имеют 2-4 слота памяти
         memory_slots_total = 4;
         memory_slots_used = 2; // Предполагаем, что используется половина слотов
+        unsafe { 
+            CACHED_MEM_SLOTS_TOTAL = Some(memory_slots_total);
+            CACHED_MEM_SLOTS_USED = Some(memory_slots_used);
+        }
     }
     
-    // Проверяем, нужно ли обновлять данные (изменение > 0.5%)
+    // Проверяем, нужно ли обновлять данные (изменение > 0.001% - максимально чувствительно)
     let mut need_update = false;
     {
-        let current_data = cache.data.read().unwrap();
-        // Обновляем только если процент использования изменился существенно
-        if (current_data.usage_percentage - usage_percent as f64).abs() > 0.5 {
+        let current_data = memory_cache.data.read().unwrap();
+        // Обновляем при малейших изменениях процента использования
+        if (current_data.usage_percentage - usage_percent as f64).abs() > 0.001 {
             need_update = true;
         }
     }
     
-    if need_update {
-        // Обновляем данные в кэше только при существенных изменениях
-        let mut data = cache.data.write().unwrap();
+    // Обновляем данные в кэше при любых заметных изменениях или при обновлении статических данных
+    if need_update || update_static {
+        let mut data = memory_cache.data.write().unwrap();
         data.total = total;
         data.used = used;
         data.free = free;
@@ -1455,8 +1499,10 @@ fn update_memory_data(cache: &MemoryCache) {
     }
     
     // Обновляем время последнего обновления
-    let mut last_update = cache.last_update.write().unwrap();
-    *last_update = Instant::now();
+    {
+        let mut last_update = memory_cache.last_update.write().unwrap();
+        *last_update = Instant::now();
+    }
 }
 
 // Функция для обновления данных о дисках - с оптимизацией

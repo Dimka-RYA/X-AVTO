@@ -152,8 +152,6 @@ pub fn get_current_cpu_frequency() -> f64 {
     // Получаем нагрузку CPU для более динамичного расчета
     let load = get_task_manager_cpu_load();
     
-    // Получаем частоту различными методами и выбираем наиболее подходящую
-    
     // 1. Пробуем через PDH (Windows Performance Counters)
     let pdh_freq = get_frequency_from_windows_pdh();
     
@@ -163,58 +161,30 @@ pub fn get_current_cpu_frequency() -> f64 {
         None => get_cpu_frequency_from_sysinfo() // Расчет по формуле, если прямое значение недоступно
     };
     
-    // Рассчитываем итоговую частоту, используя консервативные веса
+    println!("[FREQ_DEBUG] PDH: {:?}, SysInfo: {}, Load: {}%", pdh_freq, sysinfo_freq, load);
+    
+    // Упрощенный расчет частоты без сглаживания
     let current_freq = if let Some(pdh) = pdh_freq {
-        // PDH наиболее точный, но может быть завышен - даем ему 50% веса
-        pdh * 0.5 + sysinfo_freq * 0.5
+        if pdh > 0.1 {
+            // Используем PDH, но проверяем на разумность
+            pdh
+        } else {
+            // Если PDH вернул слишком маленькое значение, используем только sysinfo
+            sysinfo_freq
+        }
     } else {
         // Если PDH недоступен, используем только sysinfo
         sysinfo_freq
     };
     
-    // Убеждаемся, что частота соответствует текущей нагрузке и не завышена
-    let adjusted_freq = if load < 5.0 {
-        // При очень низкой нагрузке - частота существенно ниже базовой
-        base_freq * (0.55 + (load / 5.0) * 0.1)
-    } else if load < 20.0 {
-        // 5-20% нагрузки - плавный переход к 80% от базовой
-        base_freq * (0.65 + (load - 5.0) / 15.0 * 0.15)
-    } else if load < 50.0 {
-        // 20-50% нагрузки - приближение к базовой
-        base_freq * (0.8 + (load - 20.0) / 30.0 * 0.15)
-    } else if load < 80.0 {
-        // 50-80% нагрузки - небольшой рост выше базовой
-        base_freq * (0.95 + (load - 50.0) / 30.0 * 0.15)
-    } else {
-        // 80-100% нагрузки - рост до максимальной, но не более 80% от максимума
-        let max_allowed = base_freq + (max_freq - base_freq) * 0.8;
-        let boost_factor = (load - 80.0) / 20.0;
-        base_freq * 1.1 + (max_allowed - base_freq * 1.1) * boost_factor
-    };
+    // Гарантируем минимальное значение частоты и ограничиваем максимальное
+    let final_freq = current_freq.max(base_freq * 0.6).min(max_freq);
     
-    // Усреднение текущей частоты и частоты по нагрузке для большей стабильности
-    let combined_freq = current_freq * 0.3 + adjusted_freq * 0.7;
-    
-    // Добавляем в историю для сглаживания, но очень ограниченно
-    let mut history = FREQUENCY_HISTORY.lock().unwrap();
-    if history.len() >= 3 { // Уменьшаем окно для большей динамичности
-        history.pop_front();
-    }
-    history.push_back(combined_freq);
-    
-    // Вычисляем среднее для небольшого сглаживания
-    let smoothed_freq = history.iter().sum::<f64>() / history.len() as f64;
-    
-    // Обновляем последнее значение
-    *LAST_FREQUENCY.lock().unwrap() = smoothed_freq;
-    
-    // Ограничиваем результат очень консервативными значениями
-    // Не позволяем превышать 80% от максимума или опускаться ниже 55% от базы
-    let final_freq = smoothed_freq.max(base_freq * 0.55).min(max_freq * 0.8);
+    // Обновляем последнее значение без использования истории
+    *LAST_FREQUENCY.lock().unwrap() = final_freq;
     
     // Выводим отладочную информацию
-    println!("[DEBUG] Частота CPU: {} ГГц, Нагрузка: {}%, База: {} ГГц, Макс: {} ГГц", 
-            final_freq, load, base_freq, max_freq);
+    println!("[DEBUG] Частота CPU (финальная): {} ГГц", final_freq);
     
     final_freq
 }
@@ -292,18 +262,18 @@ fn get_frequency_from_windows_pdh() -> Option<f64> {
                         let base_freq = get_base_cpu_frequency();
                         let max_freq = get_max_cpu_frequency();
                         
-                        // Улучшенный расчет частоты с существенным снижением коэффициентов
+                        // Прямое использование значения counter без сложной формулы
                         let freq = if double_val <= 100.0 {
-                            // При нагрузке до 100% используем консервативную формулу
-                            base_freq + (max_freq - base_freq) * (double_val / 100.0) * 0.7
+                            // Процент от базовой частоты
+                            base_freq * (double_val / 100.0).max(0.6)
                         } else {
-                            // Если производительность > 100%, значит турбо режим
-                            base_freq + (max_freq - base_freq) * ((double_val - 100.0) / 100.0 + 0.5)
+                            // Если значение больше 100%, то это указывает на турбо буст
+                            // Напрямую используем данные без ограничений
+                            base_freq * (double_val / 100.0)
                         };
                         
-                        // Ограничиваем результат, не позволяя выйти за максимум
-                        // Дополнительно снижаем максимум для предотвращения завышенных значений
-                        return Some(freq.min(max_freq * 0.85).max(base_freq * 0.65));
+                        // Не ограничиваем значение, а просто возвращаем результат
+                        return Some(freq);
                     }
                 }
             }
