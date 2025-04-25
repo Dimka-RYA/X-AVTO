@@ -1,0 +1,5 @@
+C:\PROJECTS\DIMPLOM\X-Avto\X-AVTO\src-tauri\src\utils\gpu_monitor_app\obj\Release\net6.0\GpuMonitor.GeneratedMSBuildEditorConfig.editorconfig
+C:\PROJECTS\DIMPLOM\X-Avto\X-AVTO\src-tauri\src\utils\gpu_monitor_app\obj\Release\net6.0\GpuMonitor.AssemblyInfoInputs.cache
+C:\PROJECTS\DIMPLOM\X-Avto\X-AVTO\src-tauri\src\utils\gpu_monitor_app\obj\Release\net6.0\GpuMonitor.AssemblyInfo.cs
+C:\PROJECTS\DIMPLOM\X-Avto\X-AVTO\src-tauri\src\utils\gpu_monitor_app\obj\Release\net6.0\GpuMonitor.csproj.CoreCompileInputs.cache
+C:\PROJECTS\DIMPLOM\X-Avto\X-AVTO\src-tauri\src\utils\gpu_monitor_app\obj\Release\net6.0\GpuMonitor.sourcelink.json

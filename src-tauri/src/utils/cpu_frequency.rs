@@ -260,7 +260,7 @@ fn get_frequency_from_windows_pdh() -> Option<f64> {
                         
                         // Получаем кэшированные значения базовой и максимальной частоты
                         let base_freq = get_base_cpu_frequency();
-                        let max_freq = get_max_cpu_frequency();
+                        let _max_freq = get_max_cpu_frequency();
                         
                         // Прямое использование значения counter без сложной формулы
                         let freq = if double_val <= 100.0 {

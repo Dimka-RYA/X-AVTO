@@ -65,6 +65,13 @@ interface GPUInfo {
   temperature?: number;
   cores?: number;
   frequency?: number;
+  memory_type?: string;
+  memory_total?: number;
+  memory_used?: number;
+  driver_version?: string;   // Версия драйвера
+  fan_speed?: number;        // Скорость вентилятора (%)
+  power_draw?: number;       // Энергопотребление (Вт)
+  power_limit?: number;      // Лимит энергопотребления (Вт)
 }
 
 interface NetworkInfo {
@@ -311,36 +318,92 @@ const StatusTab: React.FC = () => {
           {systemInfo.gpu ? (
             <div className="system-section">
               <h3 className="section-header">Видеокарта</h3>
-              <div className="processor-model">{systemInfo.gpu.name || 'Неизвестная модель'}</div>
+              <div className="gpu-model">{systemInfo.gpu.name || 'Неизвестная видеокарта'}</div>
               
-              <div className="info-block">
-                <div className="info-text">
-                  <div className="info-row">
-                    <span>Кол-во ядер:</span>
-                    <span>{systemInfo.gpu.cores || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Частота:</span>
-                    <span>{typeof systemInfo.gpu.frequency === 'number' ? `${systemInfo.gpu.frequency.toFixed(1)} ГГц` : 'Нет данных'}</span>
-                  </div>
+              {systemInfo.gpu.driver_version && (
+                <div className="info-row">
+                  <span className="info-label">Драйвер:</span>
+                  <span className="info-value">{systemInfo.gpu.driver_version}</span>
                 </div>
+              )}
+              
+              <div className="indicators-row">
+                <CircularIndicator
+                  value={systemInfo.gpu.usage || 0}
+                  color={getColorForPercentage(systemInfo.gpu.usage || 0)}
+                  text={`${systemInfo.gpu.usage?.toFixed(0) || 0}%`}
+                  label="Использование"
+                />
                 
-                <div className="gauges-container">
-                  <div className="gauge-with-label">
-                    <CircularIndicator
-                      value={systemInfo.gpu.usage || 0}
-                      color={getColorForPercentage(systemInfo.gpu.usage || 0)}
-                      text={`${Math.round(systemInfo.gpu.usage || 0)}%`}
-                      label="Нагруженность"
-                    />
+                {systemInfo.gpu.temperature && (
+                  <CircularIndicator
+                    value={systemInfo.gpu.temperature}
+                    color={getColorForTemperature(systemInfo.gpu.temperature)}
+                    text={`${systemInfo.gpu.temperature.toFixed(0)}°C`}
+                    label="Температура"
+                  />
+                )}
+                
+                {systemInfo.gpu.fan_speed && (
+                  <CircularIndicator
+                    value={systemInfo.gpu.fan_speed}
+                    color={systemInfo.gpu.fan_speed > 70 ? '#f44336' : systemInfo.gpu.fan_speed > 40 ? '#ff9800' : '#4caf50'}
+                    text={`${systemInfo.gpu.fan_speed.toFixed(0)}%`}
+                    label="Вентилятор"
+                  />
+                )}
+              </div>
+              
+              <div className="gpu-details">
+                {systemInfo.gpu.cores && (
+                  <div className="info-row">
+                    <span className="info-label">Ядра:</span>
+                    <span className="info-value">{systemInfo.gpu.cores}</span>
                   </div>
-                </div>
+                )}
+                
+                {systemInfo.gpu.frequency && (
+                  <div className="info-row">
+                    <span className="info-label">Частота:</span>
+                    <span className="info-value">{systemInfo.gpu.frequency.toFixed(2)} ГГц</span>
+                  </div>
+                )}
+                
+                {systemInfo.gpu.power_draw && (
+                  <div className="info-row">
+                    <span className="info-label">Энергопотребление:</span>
+                    <span className="info-value">
+                      {systemInfo.gpu.power_draw.toFixed(1)} / {systemInfo.gpu.power_limit?.toFixed(1) || '?'} Вт
+                    </span>
+                  </div>
+                )}
+                
+                {systemInfo.gpu.memory_type && (
+                  <div className="info-row">
+                    <span className="info-label">Тип памяти:</span>
+                    <span className="info-value">{systemInfo.gpu.memory_type}</span>
+                  </div>
+                )}
+                
+                {systemInfo.gpu.memory_total && (
+                  <div className="info-row">
+                    <span className="info-label">Видеопамять:</span>
+                    <span className="info-value">
+                      {formatBytes(systemInfo.gpu.memory_used || 0)} / {formatBytes(systemInfo.gpu.memory_total)}
+                      {systemInfo.gpu.memory_total > 0 && systemInfo.gpu.memory_used && (
+                        <span className="memory-percentage">
+                          ({Math.round((systemInfo.gpu.memory_used / systemInfo.gpu.memory_total) * 100)}%)
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
             <div className="system-section">
               <h3 className="section-header">Видеокарта</h3>
-              <div className="no-data-message">Нет данных о видеокарте</div>
+              <div className="not-available">Информация недоступна</div>
             </div>
           )}
         </div>
