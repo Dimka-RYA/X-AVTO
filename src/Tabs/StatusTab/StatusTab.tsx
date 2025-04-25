@@ -76,6 +76,14 @@ interface GPUInfo {
 
 interface NetworkInfo {
   usage: number;
+  adapter_name?: string;     // Название сетевого адаптера
+  ip_address?: string;       // IP-адрес
+  download_speed?: number;   // Скорость загрузки (байт/с)
+  upload_speed?: number;     // Скорость выгрузки (байт/с)
+  total_received?: number;   // Всего получено данных (байт)
+  total_sent?: number;       // Всего отправлено данных (байт)
+  mac_address?: string;      // MAC-адрес
+  connection_type?: string;  // Тип подключения (Ethernet, Wi-Fi)
 }
 
 // Компонент кругового индикатора
@@ -543,12 +551,61 @@ const StatusTab: React.FC = () => {
             <div className="system-section">
               <h3 className="section-header">Сеть</h3>
               
+              {systemInfo.network.adapter_name && (
+                <div className="network-adapter-name">
+                  {systemInfo.network.adapter_name}
+                  {systemInfo.network.connection_type && ` (${systemInfo.network.connection_type})`}
+                </div>
+              )}
+              
               <div className="info-block">
                 <div className="info-text">
+                  {systemInfo.network.ip_address && (
+                    <div className="info-row">
+                      <span className="info-label">IP-адрес:</span>
+                      <span className="info-value">{systemInfo.network.ip_address}</span>
+                    </div>
+                  )}
+                  
+                  {systemInfo.network.mac_address && (
+                    <div className="info-row">
+                      <span className="info-label">MAC-адрес:</span>
+                      <span className="info-value">{systemInfo.network.mac_address}</span>
+                    </div>
+                  )}
+                  
                   <div className="info-row">
-                    <span>Использование:</span>
-                    <span>{typeof systemInfo.network.usage === 'number' ? `${systemInfo.network.usage.toFixed(1)}%` : 'Нет данных'}</span>
+                    <span className="info-label">Использование:</span>
+                    <span className="info-value">{typeof systemInfo.network.usage === 'number' ? `${systemInfo.network.usage.toFixed(1)}%` : 'Нет данных'}</span>
                   </div>
+                  
+                  {systemInfo.network.download_speed !== undefined && (
+                    <div className="info-row">
+                      <span className="info-label">Скорость загрузки:</span>
+                      <span className="info-value">{formatBytes(systemInfo.network.download_speed)}/с</span>
+                    </div>
+                  )}
+                  
+                  {systemInfo.network.upload_speed !== undefined && (
+                    <div className="info-row">
+                      <span className="info-label">Скорость выгрузки:</span>
+                      <span className="info-value">{formatBytes(systemInfo.network.upload_speed)}/с</span>
+                    </div>
+                  )}
+                  
+                  {systemInfo.network.total_received !== undefined && (
+                    <div className="info-row">
+                      <span className="info-label">Всего получено:</span>
+                      <span className="info-value">{formatBytes(systemInfo.network.total_received)}</span>
+                    </div>
+                  )}
+                  
+                  {systemInfo.network.total_sent !== undefined && (
+                    <div className="info-row">
+                      <span className="info-label">Всего отправлено:</span>
+                      <span className="info-value">{formatBytes(systemInfo.network.total_sent)}</span>
+                    </div>
+                  )}
                 </div>
                 
                 <div className="network-gauge">
@@ -556,6 +613,7 @@ const StatusTab: React.FC = () => {
                     value={systemInfo.network.usage || 0}
                     color={getColorForPercentage(systemInfo.network.usage || 0)}
                     text={`${Math.round(systemInfo.network.usage || 0)}%`}
+                    label="Использование"
                   />
                 </div>
               </div>
@@ -563,7 +621,7 @@ const StatusTab: React.FC = () => {
           ) : (
             <div className="system-section">
               <h3 className="section-header">Сеть</h3>
-              <div className="no-data-message">Нет данных о сети</div>
+              <div className="not-available">Информация недоступна</div>
             </div>
           )}
         </div>

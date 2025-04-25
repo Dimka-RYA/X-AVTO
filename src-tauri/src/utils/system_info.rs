@@ -141,13 +141,28 @@ pub struct GPUInfo {
     pub power_limit: Option<f32>,      // Лимит энергопотребления (Вт)
 }
 
-// В структуре SystemInfo добавим gpu
+// Структура с информацией о сети
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NetworkInfo {
+    pub usage: f32,                // Процент использования сети
+    pub adapter_name: String,      // Название сетевого адаптера
+    pub ip_address: String,        // IP-адрес
+    pub download_speed: u64,       // Скорость загрузки (байт/с)
+    pub upload_speed: u64,         // Скорость выгрузки (байт/с)
+    pub total_received: u64,       // Всего получено данных (байт)
+    pub total_sent: u64,           // Всего отправлено данных (байт)
+    pub mac_address: String,       // MAC-адрес
+    pub connection_type: String,   // Тип подключения (Ethernet, Wi-Fi)
+}
+
+// В структуре SystemInfo добавим gpu и network
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SystemInfo {
     pub cpu: ProcessorInfo,
     pub disks: Vec<DiskInfo>,
     pub memory: MemoryInfo,
     pub gpu: Option<GPUInfo>,
+    pub network: Option<NetworkInfo>, // Добавляем информацию о сети
 }
 
 // Улучшенная многопоточная система кэширования и обновления
@@ -206,6 +221,7 @@ pub struct SystemInfoCache {
     pub memory: MemoryCache,
     pub disk: DiskCache,
     pub gpu: GPUCache,
+    pub network: NetworkCache, // Добавляем кэш для сети
     pub last_full_update: Arc<RwLock<Instant>>,
 }
 
@@ -216,7 +232,25 @@ impl Default for SystemInfoCache {
             memory: MemoryCache::default(),
             disk: DiskCache::default(),
             gpu: GPUCache::default(),
+            network: NetworkCache::default(), // Инициализируем кэш для сети
             last_full_update: Arc::new(RwLock::new(Instant::now())),
+        }
+    }
+}
+
+// Кэш для сетевых данных
+pub struct NetworkCache {
+    pub data: Arc<RwLock<Option<NetworkInfo>>>,
+    pub last_update: Arc<RwLock<Instant>>,
+    pub previous_bytes: Arc<RwLock<Option<(u64, u64)>>>, // (received, sent) для расчета скорости
+}
+
+impl Default for NetworkCache {
+    fn default() -> Self {
+        Self {
+            data: Arc::new(RwLock::new(None)),
+            last_update: Arc::new(RwLock::new(Instant::now())),
+            previous_bytes: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -239,6 +273,7 @@ impl SystemInfoCache {
                 last_update: Arc::new(RwLock::new(Instant::now())),
             },
             gpu: GPUCache::default(),
+            network: NetworkCache::default(), // Инициализируем кэш для сети
             last_full_update: Arc::new(RwLock::new(Instant::now())),
         }
     }
@@ -249,12 +284,14 @@ impl SystemInfoCache {
         let memory_data = self.memory.data.read().unwrap().clone();
         let disks_data = self.disk.data.read().unwrap().clone();
         let gpu_data = self.gpu.data.read().unwrap().clone();
+        let network_data = self.network.data.read().unwrap().clone();
         
         SystemInfo {
             cpu: cpu_data,
             memory: memory_data,
             disks: disks_data,
             gpu: gpu_data,
+            network: network_data,
         }
     }
 }
@@ -284,8 +321,8 @@ fn is_monitoring_active() -> bool {
 pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCache>) {
     println!("[SystemInfo] Запуск многопоточной системы мониторинга");
     
-    // Изначально устанавливаем мониторинг как неактивный
-    MONITORING_ACTIVE.store(false, Ordering::SeqCst);
+    // Включаем мониторинг
+    MONITORING_ACTIVE.store(true, Ordering::SeqCst);
     
     // Сразу обновляем статические данные CPU при запуске, не дожидаясь первого цикла
     update_cpu_static_data(&cache.cpu);
@@ -429,8 +466,34 @@ pub fn start_system_info_thread(app_handle: AppHandle, cache: Arc<SystemInfoCach
         }
     });
     
-    // Изначально активируем мониторинг, чтобы наполнить кеш начальными данными
-    MONITORING_ACTIVE.store(true, Ordering::SeqCst);
+    // Запускаем обновление сетевых данных с интервалом в 1 секунду
+    let network_cache_clone = cache.clone();
+    let app_handle_clone = app_handle.clone();
+    std::thread::spawn(move || {
+        let mut last_network_update = Instant::now();
+        
+        loop {
+            if !is_monitoring_active() {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+            
+            // Обновляем информацию о сети каждую секунду
+            let now = Instant::now();
+            if now.duration_since(last_network_update) >= Duration::from_secs(1) {
+                update_network_data(&network_cache_clone.network);
+                last_network_update = now;
+                
+                // Отправляем уведомление о обновлении, если есть изменения
+                if let Some(network_info) = network_cache_clone.network.data.read().unwrap().as_ref() {
+                    app_handle_clone.emit("network-info-updated", network_info).ok();
+                }
+            }
+            
+            // Спим между обновлениями
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    });
     
     // Через 2 секунды деактивируем мониторинг если пользователь еще не переключился на вкладку
     let init_app_handle = app_handle.clone();
@@ -450,7 +513,13 @@ pub fn create_system_info_cache() -> Arc<SystemInfoCache> {
 // Обновленная команда, которая теперь возвращает данные из кэша
 #[tauri::command]
 pub fn get_system_info(cache: tauri::State<'_, Arc<SystemInfoCache>>) -> SystemInfo {
-    cache.get_system_info()
+    SystemInfo {
+        cpu: cache.cpu.data.read().unwrap().clone(),
+        memory: cache.memory.data.read().unwrap().clone(),
+        disks: cache.disk.data.read().unwrap().clone(),
+        gpu: cache.gpu.data.read().unwrap().clone(),
+        network: cache.network.data.read().unwrap().clone(),
+    }
 }
 
 // Функция для обновления динамических данных CPU - оптимизированная версия
@@ -884,6 +953,7 @@ fn get_system_info_internal() -> SystemInfo {
         disks: disks_info,
         memory,
         gpu,
+        network: None, // Добавляем None для сети
     }
 }
 
@@ -2140,5 +2210,143 @@ fn get_memory_info(sys: &System) -> MemoryInfo {
         slots_used: memory_details.get("SlotsUsed").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0),
         memory_name: memory_details.get("Manufacturer").cloned().unwrap_or_else(|| String::from("Unknown")),
         memory_part_number: memory_details.get("PartNumber").cloned().unwrap_or_else(|| String::from("Unknown")),
+    }
+}
+
+// Функция для обновления информации о сети
+fn update_network_data(cache: &NetworkCache) {
+    #[cfg(target_os = "windows")]
+    {
+        // Получаем текущее время
+        let now = Instant::now();
+        
+        // Получаем информацию о сетевом адаптере через WMI
+        let mut network_info = NetworkInfo::default();
+        
+        // Получаем основную информацию о сетевом адаптере
+        if let Ok(output) = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1 | Format-List Name,MacAddress,LinkSpeed,MediaType"
+            ])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                println!("[NETWORK] Получена информация о сетевом адаптере");
+                
+                // Парсим имя адаптера
+                if let Some(name_line) = output_str.lines().find(|line| line.trim().starts_with("Name")) {
+                    if let Some(name) = name_line.trim().strip_prefix("Name").map(|s| s.trim().trim_start_matches(':').trim()) {
+                        network_info.adapter_name = name.to_string();
+                        println!("[NETWORK] Имя адаптера: {}", name);
+                    }
+                }
+                
+                // Парсим MAC-адрес
+                if let Some(mac_line) = output_str.lines().find(|line| line.trim().starts_with("MacAddress")) {
+                    if let Some(mac) = mac_line.trim().strip_prefix("MacAddress").map(|s| s.trim().trim_start_matches(':').trim()) {
+                        network_info.mac_address = mac.to_string();
+                        println!("[NETWORK] MAC-адрес: {}", mac);
+                    }
+                }
+                
+                // Парсим тип подключения
+                if let Some(media_line) = output_str.lines().find(|line| line.trim().starts_with("MediaType")) {
+                    if let Some(media_type) = media_line.trim().strip_prefix("MediaType").map(|s| s.trim().trim_start_matches(':').trim()) {
+                        network_info.connection_type = media_type.to_string();
+                        println!("[NETWORK] Тип подключения: {}", media_type);
+                    }
+                }
+            }
+        }
+        
+        // Получаем IP-адрес
+        if let Ok(output) = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-NetIPAddress | Where-Object { $_.AddressFamily -eq 'IPv4' -and $_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1 -ExpandProperty IPAddress"
+            ])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                let ip = output_str.trim();
+                if !ip.is_empty() {
+                    network_info.ip_address = ip.to_string();
+                    println!("[NETWORK] IP-адрес: {}", ip);
+                }
+            }
+        }
+        
+        // Получаем статистику сетевого адаптера (байты полученные/отправленные)
+        let ps_command = format!("Get-NetAdapterStatistics | Where-Object Name -eq '{}' | Select-Object ReceivedBytes,SentBytes | ConvertTo-Json", network_info.adapter_name);
+        if let Ok(output) = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &ps_command
+            ])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Ok(stats) = serde_json::from_str::<serde_json::Value>(&output_str) {
+                    // Получаем байты полученные
+                    if let Some(received) = stats.get("ReceivedBytes").and_then(|v| v.as_u64()) {
+                        network_info.total_received = received;
+                        println!("[NETWORK] Всего получено: {} байт", received);
+                    }
+                    
+                    // Получаем байты отправленные
+                    if let Some(sent) = stats.get("SentBytes").and_then(|v| v.as_u64()) {
+                        network_info.total_sent = sent;
+                        println!("[NETWORK] Всего отправлено: {} байт", sent);
+                    }
+                    
+                    // Рассчитываем скорость загрузки/выгрузки на основе предыдущих значений
+                    let mut previous_bytes = cache.previous_bytes.write().unwrap();
+                    if let Some((prev_received, prev_sent)) = *previous_bytes {
+                        let last_update = *cache.last_update.read().unwrap();
+                        let elapsed_secs = now.duration_since(last_update).as_secs_f64();
+                        
+                        if elapsed_secs > 0.0 {
+                            // Рассчитываем скорость загрузки (байт/с)
+                            if network_info.total_received >= prev_received {
+                                network_info.download_speed = ((network_info.total_received - prev_received) as f64 / elapsed_secs) as u64;
+                                println!("[NETWORK] Скорость загрузки: {} байт/с", network_info.download_speed);
+                            }
+                            
+                            // Рассчитываем скорость выгрузки (байт/с)
+                            if network_info.total_sent >= prev_sent {
+                                network_info.upload_speed = ((network_info.total_sent - prev_sent) as f64 / elapsed_secs) as u64;
+                                println!("[NETWORK] Скорость выгрузки: {} байт/с", network_info.upload_speed);
+                            }
+                        }
+                    }
+                    
+                    // Сохраняем текущие значения для следующего расчета
+                    *previous_bytes = Some((network_info.total_received, network_info.total_sent));
+                }
+            }
+        }
+        
+        // Рассчитываем использование сети на основе максимальной пропускной способности
+        // Для упрощения берем максимум из скоростей загрузки и выгрузки
+        let max_speed = network_info.download_speed.max(network_info.upload_speed);
+        // Предполагаем, что скорость в 100 МБ/с соответствует 100% использования
+        // Это условное значение, в реальности нужно получать реальную пропускную способность адаптера
+        const MAX_EXPECTED_SPEED: u64 = 100 * 1024 * 1024; // 100 МБ/с
+        network_info.usage = ((max_speed as f64 / MAX_EXPECTED_SPEED as f64) * 100.0) as f32;
+        network_info.usage = network_info.usage.min(100.0); // Ограничиваем максимум в 100%
+        println!("[NETWORK] Использование сети: {}%", network_info.usage);
+        
+        // Обновляем кэш
+        *cache.data.write().unwrap() = Some(network_info);
+        *cache.last_update.write().unwrap() = now;
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        println!("[NETWORK] Получение информации о сети на не Windows системах не реализовано");
     }
 }
