@@ -32,7 +32,7 @@ pub struct ProcessorInfo {
     pub handles: usize,       // количество дескрипторов в системе
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DiskInfo {
     pub name: String,
     pub mount_point: String,
@@ -41,6 +41,24 @@ pub struct DiskInfo {
     pub file_system: String,
     pub is_removable: bool,
     pub usage_percent: f32,
+    pub read_speed: u64,    // скорость чтения в байтах/с
+    pub write_speed: u64,   // скорость записи в байтах/с
+}
+
+impl Default for DiskInfo {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            mount_point: String::new(),
+            available_space: 0,
+            total_space: 0,
+            file_system: String::new(),
+            is_removable: false,
+            usage_percent: 0.0,
+            read_speed: 0,
+            write_speed: 0,
+        }
+    }
 }
 
 // Структура для хранения данных о памяти (внутренняя)
@@ -1505,6 +1523,7 @@ fn update_memory_data(memory_cache: &MemoryCache) {
 fn update_disk_data(cache: &DiskCache) {
     // Проверяем активен ли мониторинг, если нет - не обновляем
     if !is_monitoring_active() {
+        println!("[DISK] Мониторинг неактивен, данные о дисках не обновляются");
         return;
     }
 
@@ -1518,33 +1537,32 @@ fn update_disk_data(cache: &DiskCache) {
         }
     }
 
-    // Получаем данные о дисках
-    let disks = Disks::new();
-    let mut disks_info = Vec::new();
+    println!("[DISK] Запрос информации о дисках...");
     
-    for disk in disks.iter() {
-        let total = disk.total_space();
-        let available = disk.available_space();
-        let used = total - available;
-        let usage_percent = if total > 0 {
-            (used as f32 / total as f32) * 100.0
+    // Получаем данные о дисках
+    let disks_info = get_disks_info();
+    
+    println!("[DISK] Получено дисков: {}", disks_info.len());
+    
+    // Если список дисков пуст, попробуем альтернативный метод
+    if disks_info.is_empty() {
+        println!("[DISK] ВНИМАНИЕ: Список дисков пуст! Запуск альтернативного метода...");
+        let alt_disks = get_disks_info_alt();
+        
+        if !alt_disks.is_empty() {
+            println!("[DISK] Альтернативный метод вернул {} дисков", alt_disks.len());
+            
+            // Обновляем данные в кэше
+            let mut data = cache.data.write().unwrap();
+            *data = alt_disks;
+            
+            // Обновляем время последнего обновления
+            let mut last_update = cache.last_update.write().unwrap();
+            *last_update = Instant::now();
+            return;
         } else {
-            0.0
-        };
-        
-        let name = disk.name().to_string_lossy().to_string();
-        let mount_point = disk.mount_point().to_string_lossy().to_string();
-        let fs_string = disk.file_system().to_string_lossy().to_string();
-        
-        disks_info.push(DiskInfo {
-            name,
-            mount_point,
-            available_space: available,
-            total_space: total,
-            file_system: fs_string,
-            is_removable: disk.is_removable(),
-            usage_percent,
-        });
+            println!("[DISK] ОШИБКА: Альтернативный метод также не нашел дисков");
+        }
     }
     
     // Проверяем, изменились ли данные существенно, чтобы не обновлять без необходимости
@@ -1557,7 +1575,9 @@ fn update_disk_data(cache: &DiskCache) {
             for (i, disk) in current_disks.iter().enumerate() {
                 if (disk.usage_percent - disks_info[i].usage_percent).abs() > 1.0 ||
                    (disk.available_space as f64 / disk.total_space as f64) - 
-                   (disks_info[i].available_space as f64 / disks_info[i].total_space as f64) > 0.01 {
+                   (disks_info[i].available_space as f64 / disks_info[i].total_space as f64) > 0.01 ||
+                   (disk.read_speed > 0 && (disk.read_speed as f64 - disks_info[i].read_speed as f64).abs() / disk.read_speed as f64 > 0.1) ||
+                   (disk.write_speed > 0 && (disk.write_speed as f64 - disks_info[i].write_speed as f64).abs() / disk.write_speed as f64 > 0.1) {
                     need_update = true;
                     break;
                 }
@@ -1566,6 +1586,7 @@ fn update_disk_data(cache: &DiskCache) {
     }
     
     if need_update {
+        println!("[DISK] Обновление кэша данных о дисках");
         // Обновляем данные в кэше только если есть реальные изменения
         let mut data = cache.data.write().unwrap();
         *data = disks_info;
@@ -1574,6 +1595,247 @@ fn update_disk_data(cache: &DiskCache) {
     // Обновляем время последнего обновления в любом случае
     let mut last_update = cache.last_update.write().unwrap();
     *last_update = Instant::now();
+}
+
+// Функция для получения информации о дисках через библиотеку sysinfo
+fn get_disks_info() -> Vec<DiskInfo> {
+    println!("[DISK] Получение информации о дисках через библиотеку sysinfo");
+    let mut disks_info = Vec::new();
+    let disks = Disks::new();
+    
+    println!("[DISK] Найдено дисков: {}", disks.iter().count());
+    
+    for disk in disks.iter() {
+        let name = disk.name().to_string_lossy().to_string();
+        let mount_point = disk.mount_point().to_string_lossy().to_string();
+        
+        println!("[DISK] Обработка диска: {} (точка монтирования: {})", name, mount_point);
+        
+        let total = disk.total_space();
+        let available = disk.available_space();
+        let used = total - available;
+        let usage_percent = if total > 0 {
+            (used as f32 / total as f32) * 100.0
+        } else {
+            0.0
+        };
+        
+        // Преобразуем OsStr в String для файловой системы
+        let fs_string = disk.file_system().to_string_lossy().to_string();
+        
+        println!("[DISK] Параметры диска {} - Общий размер: {} байт, Доступно: {} байт, Использовано: {}%, Файловая система: {}", 
+                name, total, available, usage_percent, fs_string);
+        
+        // Создаем базовый объект DiskInfo
+        let mut disk_info = DiskInfo {
+            name: name.clone(),
+            mount_point: mount_point,
+            available_space: available,
+            total_space: total,
+            file_system: fs_string,
+            is_removable: disk.is_removable(),
+            usage_percent,
+            read_speed: 0,
+            write_speed: 0,
+        };
+        
+        // Для Windows получаем скорость чтения/записи через PowerShell
+        #[cfg(target_os = "windows")]
+        {
+            // Извлекаем имя диска без двоеточия (например, из "C:" получаем "C")
+            let disk_letter = name.trim_end_matches(':');
+            if !disk_letter.is_empty() {
+                println!("[DISK] Запрос скорости чтения/записи для диска {}", disk_letter);
+                
+                if let Ok(output) = Command::new("powershell")
+                    .args([
+                        "-NoProfile",
+                        "-Command",
+                        &format!("Get-Counter -Counter \"\\PhysicalDisk({})\\Disk Read Bytes/sec\", \"\\PhysicalDisk({})\\Disk Write Bytes/sec\" | Select-Object -ExpandProperty CounterSamples | Format-List InstanceName, CookedValue", disk_letter, disk_letter)
+                    ])
+                    .output()
+                {
+                    if let Ok(output_str) = String::from_utf8(output.stdout) {
+                        println!("[DISK] Получен вывод PowerShell для скорости диска:\n{}", output_str);
+                        
+                        // Парсим результаты
+                        let mut read_speed = 0;
+                        let mut write_speed = 0;
+                        
+                        for line in output_str.lines() {
+                            let line = line.trim();
+                            if line.contains("CookedValue") {
+                                if let Some(value_str) = line.strip_prefix("CookedValue :") {
+                                    if let Ok(value) = value_str.trim().parse::<f64>() {
+                                        // Определяем, это скорость чтения или записи
+                                        if output_str.contains("Disk Read Bytes/sec") && read_speed == 0 {
+                                            read_speed = value as u64;
+                                            println!("[DISK] Скорость чтения для диска {}: {} байт/сек", disk_letter, read_speed);
+                                        } else if output_str.contains("Disk Write Bytes/sec") && write_speed == 0 {
+                                            write_speed = value as u64;
+                                            println!("[DISK] Скорость записи для диска {}: {} байт/сек", disk_letter, write_speed);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        disk_info.read_speed = read_speed;
+                        disk_info.write_speed = write_speed;
+                    } else {
+                        println!("[DISK] Ошибка декодирования вывода PowerShell: {}", String::from_utf8_lossy(&output.stderr));
+                    }
+                } else {
+                    println!("[DISK] Ошибка выполнения PowerShell команды для получения скорости диска");
+                }
+            }
+        }
+        
+        disks_info.push(disk_info);
+    }
+    
+    if disks_info.is_empty() {
+        println!("[DISK] ПРЕДУПРЕЖДЕНИЕ: Не найдено ни одного диска через библиотеку sysinfo");
+    }
+    
+    disks_info
+}
+
+// Альтернативный метод получения информации о дисках через PowerShell
+#[cfg(target_os = "windows")]
+fn get_disks_info_alt() -> Vec<DiskInfo> {
+    println!("[DISK] Запуск альтернативного метода получения информации о дисках через PowerShell");
+    
+    let mut disks_info = Vec::new();
+    
+    if let Ok(output) = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Get-Volume | Where-Object {$_.DriveLetter -ne $null} | Select-Object DriveLetter, FileSystemLabel, FileSystem, DriveType, SizeRemaining, Size | ConvertTo-Json"
+        ])
+        .output()
+    {
+        if let Ok(output_str) = String::from_utf8(output.stdout) {
+            println!("[DISK] Получен вывод PowerShell:\n{}", output_str);
+            
+            if let Ok(volumes) = serde_json::from_str::<serde_json::Value>(&output_str) {
+                let volumes_array = match volumes {
+                    serde_json::Value::Array(arr) => arr,
+                    serde_json::Value::Object(_) => {
+                        // Если это один объект, превращаем его в массив
+                        vec![volumes]
+                    },
+                    _ => {
+                        println!("[DISK] Ошибка: неожиданный формат JSON");
+                        return disks_info;
+                    }
+                };
+                
+                for volume in volumes_array {
+                    if let Some(drive_letter) = volume.get("DriveLetter").and_then(|v| v.as_str()) {
+                        let name = format!("{}:", drive_letter);
+                        let label = volume.get("FileSystemLabel")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        
+                        let file_system = volume.get("FileSystem")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown");
+                        
+                        let is_removable = volume.get("DriveType")
+                            .and_then(|v| v.as_str())
+                            .map(|t| t == "Removable")
+                            .unwrap_or(false);
+                        
+                        let total_space = volume.get("Size")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0) as u64;
+                        
+                        let available_space = volume.get("SizeRemaining")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0) as u64;
+                        
+                        let used_space = total_space.saturating_sub(available_space);
+                        let usage_percent = if total_space > 0 {
+                            (used_space as f32 / total_space as f32) * 100.0
+                        } else {
+                            0.0
+                        };
+                        
+                        println!("[DISK] Найден диск: {} ({}), Файл.система: {}, Общий размер: {} байт, Доступно: {} байт, Использовано: {}%", 
+                                 name, label, file_system, total_space, available_space, usage_percent);
+                        
+                        let mut disk_info = DiskInfo {
+                            name: if !label.is_empty() { format!("{} ({})", name, label) } else { name.clone() },
+                            mount_point: name,
+                            available_space,
+                            total_space,
+                            file_system: file_system.to_string(),
+                            is_removable,
+                            usage_percent,
+                            read_speed: 0,
+                            write_speed: 0,
+                        };
+                        
+                        // Получаем скорость чтения/записи
+                        if let Ok(perf_output) = Command::new("powershell")
+                            .args([
+                                "-NoProfile",
+                                "-Command",
+                                &format!("Get-Counter -Counter \"\\LogicalDisk({})\\Disk Read Bytes/sec\", \"\\LogicalDisk({})\\Disk Write Bytes/sec\" | Select-Object -ExpandProperty CounterSamples | Format-List InstanceName, CookedValue", drive_letter, drive_letter)
+                            ])
+                            .output()
+                        {
+                            if let Ok(perf_str) = String::from_utf8(perf_output.stdout) {
+                                println!("[DISK] Вывод счетчиков производительности для {}: {}", drive_letter, perf_str);
+                                
+                                let mut read_speed = 0;
+                                let mut write_speed = 0;
+                                
+                                for line in perf_str.lines() {
+                                    let line = line.trim();
+                                    if line.contains("CookedValue") {
+                                        if let Some(value_str) = line.strip_prefix("CookedValue :") {
+                                            if let Ok(value) = value_str.trim().parse::<f64>() {
+                                                if perf_str.contains("Read Bytes/sec") && read_speed == 0 {
+                                                    read_speed = value as u64;
+                                                } else if perf_str.contains("Write Bytes/sec") && write_speed == 0 {
+                                                    write_speed = value as u64;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                disk_info.read_speed = read_speed;
+                                disk_info.write_speed = write_speed;
+                                println!("[DISK] Скорость диска {}: чтение={} байт/с, запись={} байт/с", 
+                                         drive_letter, read_speed, write_speed);
+                            }
+                        }
+                        
+                        disks_info.push(disk_info);
+                    }
+                }
+            } else {
+                println!("[DISK] Ошибка разбора JSON данных о дисках");
+            }
+        } else {
+            println!("[DISK] Ошибка декодирования вывода PowerShell: {}", String::from_utf8_lossy(&output.stderr));
+        }
+    } else {
+        println!("[DISK] Ошибка выполнения PowerShell команды для получения списка дисков");
+    }
+    
+    println!("[DISK] Альтернативный метод нашел {} дисков", disks_info.len());
+    disks_info
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_disks_info_alt() -> Vec<DiskInfo> {
+    println!("[DISK] Альтернативный метод получения дисков не реализован для не-Windows систем");
+    Vec::new()
 }
 
 // Кэш для GPU
@@ -2136,38 +2398,6 @@ fn get_processor_info(sys: &System) -> ProcessorInfo {
         system_threads: system_threads,
         handles: handles,
     }
-}
-
-// Функция для получения информации о дисках
-fn get_disks_info() -> Vec<DiskInfo> {
-    let mut disks_info = Vec::new();
-    let disks = Disks::new();
-    
-    for disk in disks.iter() {
-        let total = disk.total_space();
-        let available = disk.available_space();
-        let used = total - available;
-        let usage_percent = if total > 0 {
-            (used as f32 / total as f32) * 100.0
-        } else {
-            0.0
-        };
-        
-        // Преобразуем OsStr в String для файловой системы
-        let fs_string = disk.file_system().to_string_lossy().to_string();
-        
-        disks_info.push(DiskInfo {
-            name: disk.name().to_string_lossy().to_string(),
-            mount_point: disk.mount_point().to_string_lossy().to_string(),
-            available_space: disk.available_space(),
-            total_space: disk.total_space(),
-            file_system: fs_string,
-            is_removable: disk.is_removable(),
-            usage_percent,
-        });
-    }
-    
-    disks_info
 }
 
 // Функция для получения информации о памяти

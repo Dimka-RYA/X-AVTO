@@ -56,6 +56,8 @@ interface DiskInfo {
   file_system: string;
   is_removable: boolean;
   usage_percent: number;
+  read_speed: number;   // скорость чтения в байтах/с
+  write_speed: number;  // скорость записи в байтах/с
 }
 
 // Добавляем интерфейсы для видеокарты и сети (по макету)
@@ -326,86 +328,85 @@ const StatusTab: React.FC = () => {
           {systemInfo.gpu ? (
             <div className="system-section">
               <h3 className="section-header">Видеокарта</h3>
-              <div className="gpu-model">{systemInfo.gpu.name || 'Неизвестная видеокарта'}</div>
+              <div className="processor-model">{systemInfo.gpu.name || 'Нет данных'}</div>
               
-              {systemInfo.gpu.driver_version && (
-                <div className="info-row">
-                  <span className="info-label">Драйвер:</span>
-                  <span className="info-value">{systemInfo.gpu.driver_version}</span>
+              <div className="info-block">
+                <div className="info-text">
+                  {systemInfo.gpu.memory_type && (
+                    <div className="info-row">
+                      <span>Тип памяти:</span>
+                      <span>{systemInfo.gpu.memory_type}</span>
+                    </div>
+                  )}
+                  {systemInfo.gpu.memory_total && systemInfo.gpu.memory_total > 0 && (
+                    <div className="info-row">
+                      <span>Объем памяти:</span>
+                      <span>{formatBytes(systemInfo.gpu.memory_total)}</span>
+                    </div>
+                  )}
+                  {systemInfo.gpu.memory_used && systemInfo.gpu.memory_total && 
+                   systemInfo.gpu.memory_used > 0 && systemInfo.gpu.memory_total > 0 && (
+                    <div className="info-row">
+                      <span>Использование памяти:</span>
+                      <span>
+                        {formatBytes(systemInfo.gpu.memory_used)} / {formatBytes(systemInfo.gpu.memory_total)} 
+                        ({Math.round((systemInfo.gpu.memory_used / systemInfo.gpu.memory_total) * 100)}%)
+                      </span>
+                    </div>
+                  )}
+                  {systemInfo.gpu.cores && (
+                    <div className="info-row">
+                      <span>Ядра CUDA:</span>
+                      <span>{systemInfo.gpu.cores}</span>
+                    </div>
+                  )}
+                  {systemInfo.gpu.frequency && (
+                    <div className="info-row">
+                      <span>Частота:</span>
+                      <span>{systemInfo.gpu.frequency.toFixed(2)} ГГц</span>
+                    </div>
+                  )}
+                  {systemInfo.gpu.driver_version && (
+                    <div className="info-row">
+                      <span>Версия драйвера:</span>
+                      <span>{systemInfo.gpu.driver_version}</span>
+                    </div>
+                  )}
+                  {systemInfo.gpu.fan_speed && (
+                    <div className="info-row">
+                      <span>Вентилятор:</span>
+                      <span>{systemInfo.gpu.fan_speed.toFixed(0)}%</span>
+                    </div>
+                  )}
+                  {systemInfo.gpu.power_draw && systemInfo.gpu.power_limit && (
+                    <div className="info-row">
+                      <span>Энергопотребление:</span>
+                      <span>{systemInfo.gpu.power_draw.toFixed(1)} / {systemInfo.gpu.power_limit.toFixed(1)} Вт</span>
+                    </div>
+                  )}
                 </div>
-              )}
-              
-              <div className="indicators-row">
-                <CircularIndicator
-                  value={systemInfo.gpu.usage || 0}
-                  color={getColorForPercentage(systemInfo.gpu.usage || 0)}
-                  text={`${systemInfo.gpu.usage?.toFixed(0) || 0}%`}
-                  label="Использование"
-                />
                 
-                {systemInfo.gpu.temperature && (
-                  <CircularIndicator
-                    value={systemInfo.gpu.temperature}
-                    color={getColorForTemperature(systemInfo.gpu.temperature)}
-                    text={`${systemInfo.gpu.temperature.toFixed(0)}°C`}
-                    label="Температура"
-                  />
-                )}
-                
-                {systemInfo.gpu.fan_speed && (
-                  <CircularIndicator
-                    value={systemInfo.gpu.fan_speed}
-                    color={systemInfo.gpu.fan_speed > 70 ? '#f44336' : systemInfo.gpu.fan_speed > 40 ? '#ff9800' : '#4caf50'}
-                    text={`${systemInfo.gpu.fan_speed.toFixed(0)}%`}
-                    label="Вентилятор"
-                  />
-                )}
-              </div>
-              
-              <div className="gpu-details">
-                {systemInfo.gpu.cores && (
-                  <div className="info-row">
-                    <span className="info-label">Ядра:</span>
-                    <span className="info-value">{systemInfo.gpu.cores}</span>
+                <div className="gauges-container gpu-gauges">
+                  <div className="gauge-with-label">
+                    <CircularIndicator
+                      value={systemInfo.gpu.usage || 0}
+                      color={getColorForPercentage(systemInfo.gpu.usage || 0)}
+                      text={`${Math.round(systemInfo.gpu.usage || 0)}%`}
+                      label="Использование"
+                    />
                   </div>
-                )}
-                
-                {systemInfo.gpu.frequency && (
-                  <div className="info-row">
-                    <span className="info-label">Частота:</span>
-                    <span className="info-value">{systemInfo.gpu.frequency.toFixed(2)} ГГц</span>
-                  </div>
-                )}
-                
-                {systemInfo.gpu.power_draw && (
-                  <div className="info-row">
-                    <span className="info-label">Энергопотребление:</span>
-                    <span className="info-value">
-                      {systemInfo.gpu.power_draw.toFixed(1)} / {systemInfo.gpu.power_limit?.toFixed(1) || '?'} Вт
-                    </span>
-                  </div>
-                )}
-                
-                {systemInfo.gpu.memory_type && (
-                  <div className="info-row">
-                    <span className="info-label">Тип памяти:</span>
-                    <span className="info-value">{systemInfo.gpu.memory_type}</span>
-                  </div>
-                )}
-                
-                {systemInfo.gpu.memory_total && (
-                  <div className="info-row">
-                    <span className="info-label">Видеопамять:</span>
-                    <span className="info-value">
-                      {formatBytes(systemInfo.gpu.memory_used || 0)} / {formatBytes(systemInfo.gpu.memory_total)}
-                      {systemInfo.gpu.memory_total > 0 && systemInfo.gpu.memory_used && (
-                        <span className="memory-percentage">
-                          ({Math.round((systemInfo.gpu.memory_used / systemInfo.gpu.memory_total) * 100)}%)
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                )}
+                  
+                  {systemInfo.gpu.temperature && (
+                    <div className="gauge-with-label">
+                      <CircularIndicator
+                        value={systemInfo.gpu.temperature}
+                        color={getColorForTemperature(systemInfo.gpu.temperature)}
+                        text={`${Math.round(systemInfo.gpu.temperature)}°C`}
+                        label="Температура"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ) : (
@@ -420,45 +421,51 @@ const StatusTab: React.FC = () => {
         <div className="status-column">
           {/* Диски */}
           {systemInfo.disks && systemInfo.disks.length > 0 ? (
-            systemInfo.disks.map((disk, index) => (
-              <div key={index} className="system-section">
-                <h3 className="section-header">Диски</h3>
-                <div className="processor-model">{disk.name || `Диск ${index + 1}`}</div>
-                
-                <div className="info-block">
-                  <div className="info-text">
-                    <div className="info-row">
-                      <span>Использование:</span>
-                      <span>{typeof disk.usage_percent === 'number' ? `${disk.usage_percent.toFixed(1)}%` : 'Нет данных'}</span>
+            <div className="hardware-section">
+              <h2>Диски</h2>
+              {systemInfo.disks.map((disk, index) => (
+                <div key={index} className="hardware-item">
+                  <div className="hardware-header">
+                    <div className="hardware-name">
+                      <b>{disk.name}</b> ({formatBytes(disk.total_space)})
                     </div>
-                    <div className="info-row">
-                      <span>Размер:</span>
-                      <span>{disk.total_space ? formatBytes(disk.total_space) : 'Нет данных'}</span>
-                    </div>
-                    <div className="info-row">
-                      <span>Файловая система:</span>
-                      <span>{disk.file_system || 'Нет данных'}</span>
-                    </div>
-                    <div className="info-row">
-                      <span>Точка монтирования:</span>
-                      <span>{disk.mount_point || 'Нет данных'}</span>
-                    </div>
-                    <div className="info-row">
-                      <span>Доступно:</span>
-                      <span>{disk.available_space ? formatBytes(disk.available_space) : 'Нет данных'}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="disk-gauge">
                     <CircularIndicator
-                      value={disk.usage_percent || 0}
-                      color={getColorForPercentage(disk.usage_percent || 0)}
-                      text={`${Math.round(disk.usage_percent || 0)}%`}
+                      value={disk.usage_percent}
+                      color={getColorForPercentage(disk.usage_percent)}
+                      text={`${Math.round(disk.usage_percent)}%`}
                     />
                   </div>
+                  <div className="hardware-details">
+                    <div className="hardware-info">
+                      <div className="info-row">
+                        <span>Файловая система:</span>
+                        <span>{disk.file_system}</span>
+                      </div>
+                      <div className="info-row">
+                        <span>Точка монтирования:</span>
+                        <span>{disk.mount_point}</span>
+                      </div>
+                      <div className="info-row">
+                        <span>Доступно:</span>
+                        <span>{formatBytes(disk.available_space)} из {formatBytes(disk.total_space)}</span>
+                      </div>
+                      <div className="info-row">
+                        <span>Использовано:</span>
+                        <span>{disk.usage_percent.toFixed(1)}%</span>
+                      </div>
+                      <div className="info-row">
+                        <span>Скорость чтения:</span>
+                        <span>{formatBytes(disk.read_speed)}/с</span>
+                      </div>
+                      <div className="info-row">
+                        <span>Скорость записи:</span>
+                        <span>{formatBytes(disk.write_speed)}/с</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
+              ))}
+            </div>
           ) : (
             <div className="system-section">
               <h3 className="section-header">Диски</h3>
