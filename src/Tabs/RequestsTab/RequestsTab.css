@@ -1,0 +1,848 @@
+.protocol-selector {
+  display: flex;
+  background-color: #2A2A2A;
+  border: 1px solid #565555;
+  border-radius: 10px;
+  padding: 8px 20px;
+  width: calc(100% - 115px);
+  height: 50px;
+  align-items: center;
+  margin-top: 50px;
+  margin-left: 50px;
+  margin-right: 50px;
+  justify-content: flex-start;
+}
+
+.protocol-btn {
+  padding: 5px 0;
+  background-color: transparent;
+  color: #e0e0e0;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  height: 30px;
+  transition: background-color 0.2s, color 0.2s;
+  text-align: center;
+  white-space: nowrap;
+  width: 100px;
+}
+
+.protocol-btn:not(:first-child) {
+  margin-left: 30px;
+}
+
+.protocol-btn.active {
+  background-color: #1C6B36;
+  color: white;
+  font-weight: bold;
+}
+
+.protocol-btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Стили для панелей запросов */
+.protocol-panel {
+  background-color: #2A2A2A;
+  border: 1px solid #565555;
+  border-radius: 10px;
+  padding: 10px 15px;
+  margin-top: 20px;
+  margin-left: 50px;
+  margin-right: 50px;
+  width: calc(100% - 115px);
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.request-controls {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  align-items: center;
+  height: 36px;
+}
+
+.message-controls, .event-controls, .mqtt-controls {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.mqtt-controls {
+  flex-direction: column;
+}
+
+.topic-control {
+  display: flex;
+  gap: 10px;
+}
+
+.method-select {
+  padding: 0 12px;
+  border-radius: 4px;
+  border: none;
+  background-color: #3F3E3E;
+  color: #fff;
+  width: 90px;
+  height: 36px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  cursor: pointer;
+  text-align: center;
+  font-weight: bold;
+}
+
+/* Цвета для разных HTTP методов */
+.method-select option[value="GET"] {
+  background-color: #3F3E3E;
+  color: #4CAF50; /* Зеленый для GET */
+}
+
+.method-select option[value="POST"] {
+  background-color: #3F3E3E;
+  color: #FF9800; /* Оранжевый для POST */
+}
+
+.method-select option[value="PUT"] {
+  background-color: #3F3E3E;
+  color: #2196F3; /* Синий для PUT */
+}
+
+.method-select option[value="DELETE"] {
+  background-color: #3F3E3E;
+  color: #F44336; /* Красный для DELETE */
+}
+
+.method-select option[value="PATCH"] {
+  background-color: #3F3E3E;
+  color: #9C27B0; /* Фиолетовый для PATCH */
+}
+
+/* Для родительского селекта, чтобы отображать выбранный метод нужным цветом */
+.method-select.method-get {
+  color: #4CAF50;
+}
+
+.method-select.method-post {
+  color: #FF9800;
+}
+
+.method-select.method-put {
+  color: #2196F3;
+}
+
+.method-select.method-delete {
+  color: #F44336;
+}
+
+.method-select.method-patch {
+  color: #9C27B0;
+}
+
+.url-input {
+  flex-grow: 1;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: 1px solid #333;
+  background-color: #242424;
+  color: #fff;
+  height: 36px;
+}
+
+.message-input, .event-input, .topic-input, .query-editor, .payload-input, .qos-select {
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: 1px solid #333;
+  background-color: #242424;
+  color: #fff;
+}
+
+.send-button, .connection-button {
+  padding: 8px 15px;
+  border-radius: 4px;
+  border: none;
+  background-color: #128739;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  white-space: nowrap;
+  height: 36px;
+  width: 120px;
+}
+
+.send-button:hover, .connection-button:hover {
+  background-color: #0a6d2c;
+}
+
+.send-button:disabled, .connection-button:disabled {
+  background-color: #555;
+  cursor: not-allowed;
+}
+
+.query-editor, .payload-input, .message-input {
+  min-height: 100px;
+  font-family: monospace;
+  resize: vertical;
+  flex-grow: 1;
+}
+
+/* Стили для контейнера с двумя блоками */
+.panels-container {
+  display: flex;
+  gap: 20px;
+  margin: 20px 50px;
+  width: calc(100% - 115px);
+}
+
+/* Стили для левого и правого блоков */
+.left-panel, .right-panel {
+  flex: 1;
+  background-color: #2A2A2A;
+  border: 1px solid #565555;
+  border-radius: 10px;
+  min-height: 300px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Стили для вкладок в левом блоке */
+.tabs-selector {
+  display: flex;
+  background-color: #202020;
+  border-bottom: 1px solid #565555;
+  padding: 5px;
+}
+
+.tab-btn {
+  padding: 8px 15px;
+  background-color: transparent;
+  color: #e0e0e0;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s, color 0.2s;
+  text-align: center;
+  margin: 0 5px;
+}
+
+.tab-btn.active {
+  background-color: #1C6B36;
+  color: white;
+  font-weight: bold;
+}
+
+/* Стили для содержимого вкладок */
+.tab-content {
+  padding: 15px;
+  flex-grow: 1;
+  overflow: auto;
+}
+
+/* Стили для блока результатов */
+.result-header {
+  display: flex;
+  background-color: #202020;
+  border-bottom: 1px solid #565555;
+  padding: 5px 10px;
+  align-items: center;
+}
+
+.result-tab-btn {
+  padding: 8px 15px;
+  background-color: transparent;
+  color: #e0e0e0;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s, color 0.2s;
+  text-align: center;
+  margin-right: 5px;
+}
+
+.result-tab-btn.active {
+  background-color: #1C6B36;
+  color: white;
+  font-weight: bold;
+}
+
+.status-info {
+  display: flex;
+  margin-left: auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-code {
+  background-color: #F44336;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+.status-code.connected {
+  background-color: #4CAF50;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+.status-code.disconnected {
+  background-color: #F44336;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+.status-time, .status-size {
+  color: #aaa;
+  font-size: 13px;
+}
+
+/* Стили для содержимого ответа */
+.result-content {
+  padding: 0;
+  flex-grow: 1;
+  overflow: auto;
+  background-color: #1D1D1D;
+  font-family: monospace;
+}
+
+.json-content {
+  margin: 0;
+  padding: 10px;
+  color: #e0e0e0;
+}
+
+.line-numbers {
+  color: #666;
+  text-align: right;
+  padding-right: 10px;
+  user-select: none;
+  border-right: 1px solid #333;
+}
+
+.json-key {
+  color: #65B0ED;
+}
+
+.json-string {
+  color: #EF7A6D;
+}
+
+.json-number {
+  color: #B5CEA8;
+}
+
+.json-boolean {
+  color: #569CD6;
+}
+
+.json-null {
+  color: #569CD6;
+}
+
+.code-container {
+  display: flex;
+}
+
+pre {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.dropdown-format {
+  background-color: #202020;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 5px 10px;
+  color: #e0e0e0;
+  margin-left: 10px;
+  cursor: pointer;
+}
+
+.websocket-logs, .websocket-messages {
+  padding: 10px;
+  color: #e0e0e0;
+  font-family: monospace;
+}
+
+/* Стили для панелей с параметрами, заголовками, авторизацией */
+.params-tab, .headers-tab, .auth-tab, .body-tab {
+  padding: 10px;
+}
+
+.params-header, .headers-header {
+  display: flex;
+  margin-bottom: 10px;
+  font-weight: bold;
+  background-color: #1D1D1D;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+.param-enabled, .header-enabled {
+  width: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.param-key, .header-key {
+  flex: 1;
+  padding: 0 5px;
+}
+
+.param-value, .header-value {
+  flex: 2;
+  padding: 0 5px;
+}
+
+.param-actions, .header-actions {
+  width: 80px;
+  display: flex;
+  justify-content: center;
+}
+
+.param-row, .header-row {
+  display: flex;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.param-row input[type="text"], .header-row input[type="text"] {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #333;
+  background-color: #242424;
+  color: #fff;
+  border-radius: 4px;
+}
+
+.param-row input[type="checkbox"], .header-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.delete-btn {
+  background-color: #6B2121;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  font-size: 12px;
+}
+
+.delete-btn:hover {
+  background-color: #8B2C2C;
+}
+
+.add-param-btn, .add-header-btn {
+  background-color: #1C6B36;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  margin-top: 10px;
+}
+
+.add-param-btn:hover, .add-header-btn:hover {
+  background-color: #20814A;
+}
+
+/* Стили для вкладки авторизации */
+.auth-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.auth-type {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.auth-type label {
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.auth-type select,
+.auth-basic input,
+.auth-bearer input,
+.body-tab select {
+  padding: 8px;
+  border: 1px solid #333;
+  background-color: #242424;
+  color: #fff;
+  border-radius: 4px;
+  width: 100%;
+}
+
+.auth-basic, .auth-bearer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.form-group label {
+  font-weight: bold;
+}
+
+/* Стили для тела запроса */
+.body-editor {
+  width: 100%;
+  min-height: 200px;
+  padding: 10px;
+  border: 1px solid #333;
+  background-color: #242424;
+  color: #fff;
+  border-radius: 4px;
+  font-family: 'Consolas', monospace;
+}
+
+/* Стили для результатов ответа */
+.response-headers, .cookies-list, .response-info {
+  padding: 10px;
+}
+
+.header-item, .cookie-item {
+  padding: 5px 0;
+  border-bottom: 1px solid #333;
+}
+
+.header-name, .cookie-name {
+  font-weight: bold;
+  margin-right: 10px;
+  color: #65B0ED;
+}
+
+.header-value, .cookie-value {
+  word-break: break-all;
+}
+
+.no-cookies {
+  font-style: italic;
+  color: #aaa;
+}
+
+.response-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.response-status, .response-time, .response-size {
+  padding: 5px 0;
+}
+
+.status-code {
+  background-color: #F44336;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+.status-code.success {
+  background-color: #4CAF50;
+}
+
+.status-code.error {
+  background-color: #F44336;
+}
+
+/* Стили для состояний загрузки и ошибок */
+.loading, .error, .empty-result {
+  padding: 20px;
+  text-align: center;
+}
+
+.loading {
+  color: #aaa;
+}
+
+.error {
+  color: #F44336;
+}
+
+.empty-result {
+  color: #aaa;
+  font-style: italic;
+}
+
+/* Стили для переключателя формата */
+.format-selector-container {
+  position: relative;
+  margin-left: 10px;
+  z-index: 100;
+}
+
+.format-selector-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 70px;
+  background-color: #1D1D1D;
+  border: 1px solid #3D3D3D;
+  color: #ffffff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  user-select: none;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.format-selector-toggle:hover {
+  background-color: #2A2A2A;
+  border-color: #4D4D4D;
+}
+
+.format-selector-arrow {
+  font-size: 8px;
+  margin-left: 8px;
+  color: #888;
+  transition: transform 0.2s;
+}
+
+.format-selector-toggle:hover .format-selector-arrow {
+  color: #aaa;
+}
+
+.format-selector-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 2px;
+  background-color: #1D1D1D;
+  border: 1px solid #3D3D3D;
+  border-radius: 4px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  z-index: 101;
+}
+
+.format-selector-option {
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  font-size: 13px;
+}
+
+.format-selector-option:hover {
+  background-color: #2A2A2A;
+}
+
+.format-selector-option.selected {
+  background-color: #2C5A44;
+  color: white;
+}
+
+/* WebSocket Panel Styles */
+.websocket-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.messages-container {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  height: 250px;
+  overflow-y: auto;
+  background-color: #f5f5f5;
+  padding: 10px;
+  margin: 10px 0;
+}
+
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message-item {
+  padding: 8px 12px;
+  border-radius: 6px;
+  display: inline-block;
+  max-width: 80%;
+  word-break: break-word;
+}
+
+.message-item.sent {
+  align-self: flex-end;
+  background-color: #dcf8c6;
+  margin-left: auto;
+  border: 1px solid #c7e9b0;
+}
+
+.message-item.received {
+  align-self: flex-start;
+  background-color: #ffffff;
+  border: 1px solid #e0e0e0;
+}
+
+.message-label {
+  font-weight: bold;
+  margin-right: 5px;
+  color: #555;
+  font-size: 0.9em;
+}
+
+.connection-button.connect {
+  background-color: #4caf50;
+}
+
+.connection-button.disconnect {
+  background-color: #f44336;
+}
+
+.error-message {
+  color: #f44336;
+  font-size: 0.9em;
+  margin: 5px 0;
+  padding: 5px;
+  background-color: #ffebee;
+  border-radius: 4px;
+  border-left: 3px solid #f44336;
+}
+
+.message-input {
+  resize: vertical;
+  min-height: 60px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+/* Dark mode additions */
+.dark .websocket-panel .messages-container {
+  background-color: #262626;
+  border-color: #444;
+}
+
+.dark .message-item.received {
+  background-color: #333;
+  border-color: #555;
+  color: #eee;
+}
+
+.dark .message-item.sent {
+  background-color: #0d5c3a;
+  border-color: #105e3c;
+  color: #fff;
+}
+
+.dark .error-message {
+  background-color: rgba(244, 67, 54, 0.1);
+  color: #ff6b6b;
+}
+
+/* MQTT Panel Styles */
+.mqtt-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.mqtt-topic-controls {
+  margin-top: 10px;
+}
+
+.topic-container {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.topic-input {
+  flex-grow: 2;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: 1px solid #333;
+  background-color: #242424;
+  color: #fff;
+  height: 36px;
+}
+
+.qos-container {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.qos-container label {
+  color: #e0e0e0;
+}
+
+.qos-select {
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #333;
+  background-color: #242424;
+  color: #fff;
+}
+
+.subscribe-button {
+  padding: 8px 15px;
+  border-radius: 4px;
+  border: none;
+  background-color: #2196F3;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  white-space: nowrap;
+  height: 36px;
+}
+
+.subscribe-button:hover {
+  background-color: #1976D2;
+}
+
+.subscribe-button:disabled {
+  background-color: #555;
+  cursor: not-allowed;
+}
+
+.messages-title {
+  margin-top: 15px;
+  margin-bottom: 5px;
+  font-weight: bold;
+  color: #e0e0e0;
+}
+
+/* Dark mode additions for MQTT */
+.dark .mqtt-panel .qos-container label {
+  color: #e0e0e0;
+}
+
+.dark .mqtt-panel .messages-title {
+  color: #e0e0e0;
+} 
