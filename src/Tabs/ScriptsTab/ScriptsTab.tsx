@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
 import "./ScriptsTab.css";
 
@@ -47,27 +47,91 @@ if __name__ == "__main__":
     print("Статус выполнения:", success)`;
 
 // Пример содержимого скрипта Python с ошибками для демонстрации подсветки
-const DEMO_SCRIPT_PYTHON_WITH_ERROR = `import os
+const DEMO_SCRIPT_PYTHON_WITH_ERROR = String.raw`# Демонстрация различных типов ошибок в Python
+import os
 import sys
 import time
+from collections import  # Незавершенный импорт
+import math
 
+# 1. Синтаксические ошибки
 def check_system():
-    print("Проверка системы..."
-    # Отсутствует закрывающая скобка
+    print("Проверка системы..."  # Отсутствует закрывающая скобка
     
-    # Неопределенная переменная
+    # 2. Неопределенная переменная
     print(f"Текущее время: {current_time}")
     
-    # Неверный отступ
+    # 3. Ошибка отступов
   system_info = os.uname()
+      wrong_indent = True
     
-    # Незакрытая строка
+    # 4. Незакрытая строка
     print("Операционная система: + system_info.sysname)
+    
+    # 5. Ошибка в списке/словаре
+    my_list = [1, 2, 3,]  # Лишняя запятая
+    my_dict = {"key": "value",}  # Лишняя запятая
+    bad_dict = {"key1": "value1", "key2": }  # Отсутствует значение
+    
+    # 6. Незакрытый многострочный комментарий
+    """
+    Это незакрытый многострочный комментарий
+    
+    # 7. Неправильное использование операторов
+    if x = 10:  # Использование = вместо ==
+        print("x равно 10")
+    
+    # 8. Незакрытые скобки разных типов
+    result = (1 + 2 * (3 + 4
+    items = ["a", "b", ["c", "d"
+    data = {"name": "test", "values": [1, 2, }
+    
+    # 9. Логические ошибки
+    for i in range(10)  # Отсутствует двоеточие
+        print(i)
+    
+    if True
+        print("Всегда выполняется")
+    
+    # 10. Проблемы с импортом
+    from math import unknown_module
+    
+    # 11. Ошибки типов
+    number = 42
+    text = "Ответ: "
+    result = text + number  # Ошибка типа: нельзя складывать строку и число
+    
+    # 12. Ошибки в аргументах функций
+    len(10, 20)  # len принимает только один аргумент
+    range(1, 2, 3, 4)  # range принимает максимум 3 аргумента
+    
+    # 13. Ошибки в форматированных строках
+    name = "Python"
+    age = 30
+    print(f"Язык {name пришел в мир {age} лет назад")  # Ошибка в f-строке
+    print(f"Версия {{ неверный формат}}")  # Несбалансированные скобки в f-строке
+    
+    # 14. Ошибки в аннотациях типов
+    def sum_numbers(a: integer, b: integer) -> integer:  # Неверный тип 'integer'
+        return a + b
+    
+    # 15. Циклические импорты
+    from __name__ import something  # Циклический импорт
     
     return True  # Эта строка не будет достигнута из-за ошибок выше
 
-if __name__ == "__main__":
-    check_system()`;
+# Ошибки на уровне модуля
+class MyClass  # Отсутствует двоеточие
+    def __init__(self):
+        self.value = 42
+
+if __name__ == "__main__"  # Отсутствует двоеточие
+    check_system()
+    
+    # Вызов несуществующей функции
+    undefined_function()
+    print(undefined_variable)
+`;
 
 // Пример содержимого скрипта PowerShell
 const DEMO_SCRIPT_POWERSHELL = `# Проверка системы с использованием PowerShell
@@ -92,25 +156,81 @@ Write-Host "Статус выполнения: $success"
 Exit $success`;
 
 // Пример содержимого скрипта PowerShell с ошибками для демонстрации подсветки
-const DEMO_SCRIPT_POWERSHELL_WITH_ERROR = `# Проверка системы с использованием PowerShell
+const DEMO_SCRIPT_POWERSHELL_WITH_ERROR = String.raw`# Демонстрация различных типов ошибок в PowerShell
+
+# 1. Незакрытые строки
 Write-Host "Проверка системы...
 
-# Неверное использование командлета
+# 2. Неверное использование командлетов
 Get-Process -InvalidParameter 
+Stop-Service -Name NonExistentService -ErrorAction
 
-# Неверный синтаксис переменной
+# 3. Неверный синтаксис переменных
 $totalSpace = $disk.Used + $disk.Free}
+$user@domain = "неверное имя переменной"
 
-# Незакрытая скобка
+# 4. Незакрытые скобки
 if ($disk.Free -lt 1GB {
     Write-Host "Мало свободного места!"
+
+# 5. Ошибки в циклах
+foreach ($item in $items {
+    Write-Host $item
 }
 
-# Ошибка в команде
+# 6. Незакрытые блоки
+function Test-Function {
+    param(
+        [string]$Name
+    
+    Write-Host "Имя: $Name"
+
+# 7. Неправильные операторы сравнения
+if ($value = 10) {
+    Write-Host "Значение равно 10"
+}
+
+# 8. Неправильное использование массивов
+$array = @(1, 2, 3,)
+$hash = @{"key" = "value",}
+$badHash = @{"key1" = "value1", "key2" = }
+
+# 9. Несогласованный синтаксис
+Write-Host "Статус: $success
+
+# 10. Неизвестные команды
 Wrong-Command
 
-# Несогласованный синтаксис
-Write-Host "Статус: $success`;
+# 11. Ошибки конвейера
+Get-Process | Where-Object { $_. } | Select-Object Name
+Get-Service | # Незавершенный конвейер
+
+# 12. Проблемы со скриптблоками
+& { Write-Host "Тест" 
+
+# 13. Обращение к несуществующим свойствам объектов
+$process.NonExistentProperty
+$disk.InvalidField
+
+# 14. Проблемы с преобразованием типов
+$number = [int]"abc"  # Ошибка преобразования
+$result = [float]::
+
+# 15. Ошибки в вызове .NET методов
+[System.Math]::Sqrt  # Отсутствуют скобки для вызова
+[System.DateTime]::ParseExact("2023/01/01")  # Не хватает аргументов
+
+# 16. Проблемы с областью видимости
+function Test-Scope {
+    $localVar = 10
+}
+$localVar  # Переменная не существует в этой области видимости
+
+# Незакрытый here-string
+$text = @"
+Многострочный текст
+без закрывающего тега
+`;
 
 // Пример содержимого скрипта Bash
 const DEMO_SCRIPT_BASH = `#!/bin/bash
@@ -135,30 +255,83 @@ echo "Статус выполнения: $SUCCESS"
 exit 0`;
 
 // Пример содержимого скрипта Bash с ошибками для демонстрации подсветки
-const DEMO_SCRIPT_BASH_WITH_ERROR = `#!/bin/bash
-# Проверка системы с использованием Bash
+const DEMO_SCRIPT_BASH_WITH_ERROR = String.raw`#!/bin/bash
+# Демонстрация различных типов ошибок в Bash
 
+# 1. Незакрытые кавычки
 echo "Проверка системы...
 
-# Неверный синтаксис условия
+# 2. Неверный синтаксис условий
 if [ $FREE_SPACE < 1000 ]
 then
     echo "Мало свободного места!"
 fi
 
-# Неизвестная команда
+# 3. Отсутствие пробелов в условиях
+if [$FREE_SPACE -lt 1000]
+then
+    echo "Ошибка синтаксиса"
+fi
+
+# 4. Неизвестные команды
 unknown_command
 
-# Незакрытая кавычка
+# 5. Незакрытая кавычка
 echo "Текущая директория: $(pwd)
 
-# Неверный синтаксис переменной
+# 6. Неверный синтаксис переменных
 $VARIABLE=value
+\${VARIABLE=value
 
-# Отсутствие закрывающей скобки
+# 7. Незакрытые скобки
 function check_disk {
     df -h
-    echo "Проверка завершена"`;
+    echo "Проверка завершена"
+
+# 8. Ошибки в циклах
+for file in \$(ls
+do
+    echo $file
+done
+
+# 9. Неверные перенаправления
+echo "Тест" >
+
+# 10. Проблемы с heredoc
+cat << EOF
+Многострочный текст
+без закрывающего тега
+
+# 11. Проблемы со скобками в выражениях
+echo \$(( 2 + 2 )
+echo \$(( 2 + ))
+echo \$((2 + 2)
+
+# 12. Небезопасное использование переменных
+rm -rf $DIR/
+
+# 13. Проблемы с массивами
+array=(1 2 3
+echo \${array[}
+
+# 14. Ошибки в регулярных выражениях
+if [[ $string =~ [a-z ]]; then
+    echo "Соответствует"
+fi
+
+# 15. Проблемы с экранированием
+echo "Строка с $variable и \n и $( команда"
+
+# 16. Ошибки в арифметических выражениях
+let result=5 /
+let result=10 / 0
+
+# 17. Проблемы с глобальными шаблонами
+rm *.txt  # Опасное использование без -i
+
+# 18. Ошибки с сигналами
+kill  # Не указан PID
+`;
 
 // Пример вывода консоли
 const DEMO_CONSOLE_OUTPUT = `Проверка системы...
@@ -206,10 +379,14 @@ const ScriptsTab: React.FC = () => {
   const [language, setLanguage] = useState<LanguageType>("python");
   const [scripts, setScripts] = useState<ScriptItem[]>(DEMO_SCRIPTS);
   const [consoleOutput, setConsoleOutput] = useState<string>("");
+  const [terminalInput, setTerminalInput] = useState<string>("");
+  const [terminalHistory, setTerminalHistory] = useState<{command: string; output: string}[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [errors, setErrors] = useState<ScriptError[]>([]);
   const [editorInstance, setEditorInstance] = useState<any>(null);
   const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
+  const [activeConsoleTab, setActiveConsoleTab] = useState<'output' | 'terminal' | 'problems'>('output');
+  const [problems, setProblems] = useState<Array<{type: 'error' | 'warning', message: string, location: string}>>([]);
 
   // Получаем шаблонный код для выбранного языка
   const getTemplateForLanguage = (lang: LanguageType): string => {
@@ -245,71 +422,798 @@ const ScriptsTab: React.FC = () => {
 
   // Функция для проверки ошибок в скрипте
   const checkForErrors = (content: string, lang: LanguageType) => {
-    // Это упрощенная демонстрационная проверка
-    // В реальном приложении здесь был бы интегрирован настоящий линтер
+    // Это расширенная проверка с поддержкой большего количества типов ошибок
     const newErrors: ScriptError[] = [];
     
     const lines = content.split('\n');
+    const fullContent = content;
     
-    // Проверяем на очевидные ошибки синтаксиса (очень примитивно)
-    lines.forEach((line, index) => {
-      // Проверка открытых/закрытых кавычек
-      const doubleQuotes = (line.match(/"/g) || []).length;
-      const singleQuotes = (line.match(/'/g) || []).length;
+    // Набор переменных для отслеживания контекста
+    const definedVariables: Set<string> = new Set();
+    const definedFunctions: Set<string> = new Set();
+    const importedModules: Set<string> = new Set();
+    
+    // Проверка баланса скобок во всём файле
+    const brackets = {
+      '(': ')',
+      '[': ']',
+      '{': '}'
+    };
+    
+    const stack: { char: string, line: number, pos: number }[] = [];
+    
+    // Анализ Python импортов и определений
+    if (lang === 'python') {
+      // Находим все импорты
+      const importRegex = /^\s*(?:from\s+(\w+(?:\.\w+)*)\s+import|import\s+(\w+(?:\.\w+)*))/;
+      for (const line of lines) {
+        const match = line.match(importRegex);
+        if (match) {
+          const moduleName = match[1] || match[2];
+          if (moduleName) importedModules.add(moduleName);
+        }
+      }
       
-      if (doubleQuotes % 2 !== 0) {
+      // Находим все определения функций
+      const functionRegex = /^\s*def\s+(\w+)\s*\(/;
+      for (const line of lines) {
+        const match = line.match(functionRegex);
+        if (match && match[1]) {
+          definedFunctions.add(match[1]);
+        }
+      }
+      
+      // Находим все определения переменных
+      const variableRegex = /^\s*(\w+)\s*=/;
+      for (const line of lines) {
+        const match = line.match(variableRegex);
+        if (match && match[1]) {
+          definedVariables.add(match[1]);
+        }
+      }
+    } else if (lang === 'powershell') {
+      // Находим все определения функций
+      const functionRegex = /^\s*function\s+(\w+[\w\-]*)\s*\{/;
+      for (const line of lines) {
+        const match = line.match(functionRegex);
+        if (match && match[1]) {
+          definedFunctions.add(match[1]);
+        }
+      }
+      
+      // Находим все определения переменных
+      const variableRegex = /^\s*\$(\w+)\s*=/;
+      for (const line of lines) {
+        const match = line.match(variableRegex);
+        if (match && match[1]) {
+          definedVariables.add(match[1]);
+        }
+      }
+    } else if (lang === 'shell') {
+      // Находим все определения функций
+      const functionRegex = /^\s*(\w+[\w\-]*)\s*\(\s*\)\s*\{/;
+      for (const line of lines) {
+        const match = line.match(functionRegex);
+        if (match && match[1]) {
+          definedFunctions.add(match[1]);
+        }
+      }
+      
+      // Находим все определения переменных
+      const variableRegex = /^\s*(\w+)=/;
+      for (const line of lines) {
+        const match = line.match(variableRegex);
+        if (match && match[1]) {
+          definedVariables.add(match[1]);
+        }
+      }
+    }
+    
+    let lineIndex = 0;
+    for (const line of lines) {
+      let inString = false;
+      let stringChar = '';
+      let escapeNext = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        // Обработка escape-последовательностей
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+        
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+        
+        // Обработка строк
+        if ((char === '"' || char === "'") && !inString) {
+          inString = true;
+          stringChar = char;
+          continue;
+        }
+        
+        if (char === stringChar && inString) {
+          inString = false;
+          stringChar = '';
+          continue;
+        }
+        
+        // Пропускаем символы внутри строк
+        if (inString) continue;
+        
+        // Обработка открывающих скобок
+        if (Object.keys(brackets).includes(char)) {
+          stack.push({ char, line: lineIndex, pos: i });
+          continue;
+        }
+        
+        // Обработка закрывающих скобок
+        if (Object.values(brackets).includes(char)) {
+          if (stack.length === 0) {
+            // Найдена лишняя закрывающая скобка
+            newErrors.push({
+              lineNumber: lineIndex + 1,
+              message: `Лишняя закрывающая скобка "${char}"`,
+              severity: 'error'
+            });
+            continue;
+          }
+          
+          const last = stack.pop();
+          if (last) {
+            const expected = brackets[last.char as keyof typeof brackets];
+            if (expected !== char) {
+              // Несоответствие типов скобок
+              newErrors.push({
+                lineNumber: lineIndex + 1,
+                message: `Ожидалась скобка "${expected}", но найдена "${char}"`,
+                severity: 'error'
+              });
+            }
+          }
+        }
+      }
+      
+      // Проверка незакрытых строк в строке
+      let doubleQuoteCount = 0;
+      let singleQuoteCount = 0;
+      let inDoubleQuote = false;
+      let inSingleQuote = false;
+      let backslash = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (backslash) {
+          backslash = false;
+          continue;
+        }
+        
+        if (char === '\\') {
+          backslash = true;
+          continue;
+        }
+        
+        if (char === '"' && !inSingleQuote) {
+          inDoubleQuote = !inDoubleQuote;
+          doubleQuoteCount++;
+        }
+        
+        if (char === "'" && !inDoubleQuote) {
+          inSingleQuote = !inSingleQuote;
+          singleQuoteCount++;
+        }
+      }
+      
+      if (doubleQuoteCount % 2 !== 0) {
         newErrors.push({
-          lineNumber: index + 1,
+          lineNumber: lineIndex + 1,
           message: 'Незакрытая двойная кавычка',
           severity: 'error'
         });
       }
       
-      if (singleQuotes % 2 !== 0) {
+      if (singleQuoteCount % 2 !== 0) {
         newErrors.push({
-          lineNumber: index + 1,
+          lineNumber: lineIndex + 1,
           message: 'Незакрытая одинарная кавычка',
           severity: 'error'
         });
       }
       
-      // Проверка открытых/закрытых скобок
-      const openBrackets = (line.match(/\(/g) || []).length;
-      const closeBrackets = (line.match(/\)/g) || []).length;
+      // ===================== РАСШИРЕННЫЕ ПРОВЕРКИ ДЛЯ PYTHON =====================
+      if (lang === 'python') {
+        // Проверка отступов для Python
+        if (lineIndex > 0 && line.trim() !== '' && !line.trim().startsWith('#')) {
+          const currentIndent = line.search(/\S|$/);
+          const prevIndent = lines[lineIndex - 1].search(/\S|$/);
+          
+          // Проверка на непоследовательные отступы
+          if (prevIndent > 0 && currentIndent > 0 && 
+             currentIndent > prevIndent && 
+             (currentIndent - prevIndent) % 4 !== 0) {
+            newErrors.push({
+              lineNumber: lineIndex + 1,
+              message: 'Неправильный отступ (должен быть кратен 4 пробелам)',
+              severity: 'warning'
+            });
+          }
+          
+          // Проверка на смешанные отступы (пробелы и табуляции)
+          if (line.includes('\t') && line.includes(' ') && line.trim() !== '') {
+            newErrors.push({
+              lineNumber: lineIndex + 1,
+              message: 'Смешанные отступы (табуляции и пробелы)',
+              severity: 'warning'
+            });
+          }
+        }
+        
+        // Проверка двоеточий в конце операторов
+        const needsColonRegex = /^\s*(if|elif|else|for|while|def|class|with|try|except|finally)\b.*[^:]\s*$/;
+        if (needsColonRegex.test(line)) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Отсутствует двоеточие в конце оператора',
+            severity: 'error'
+          });
+        }
+        
+        // Проверка использования оператора присваивания в условиях
+        if (/^\s*(if|elif|while)\s+.*[^=!><]=(?!=).*/.test(line)) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Возможно ошибочное использование "=" вместо "==" в условии',
+            severity: 'error'
+          });
+        }
+        
+        // Проверка на неверные аргументы функции
+        const functionCallRegex = /(\w+)\s*\((.*)\)/g;
+        let match;
+        while ((match = functionCallRegex.exec(line)) !== null) {
+          const funcName = match[1];
+          const args = match[2];
+          
+          // Проверка вызовов встроенных функций с неверными аргументами
+          if (funcName === 'len' && args.includes(',')) {
+            newErrors.push({
+              lineNumber: lineIndex + 1,
+              message: 'Функция len() принимает только один аргумент',
+              severity: 'error'
+            });
+          }
+          
+          if (funcName === 'range') {
+            const argCount = args.split(',').filter(arg => arg.trim() !== '').length;
+            if (argCount > 3) {
+              newErrors.push({
+                lineNumber: lineIndex + 1,
+                message: 'Функция range() принимает от 1 до 3 аргументов',
+                severity: 'error'
+              });
+            }
+          }
+          
+          // Проверка вызова неопределенной функции
+          if (!definedFunctions.has(funcName) && 
+              !['print', 'len', 'range', 'str', 'int', 'float', 'list', 'dict', 'set', 'tuple', 'sum', 'min', 'max'].includes(funcName)) {
+            const moduleCall = funcName.split('.');
+            if (moduleCall.length === 1 || !importedModules.has(moduleCall[0])) {
+              newErrors.push({
+                lineNumber: lineIndex + 1,
+                message: `Возможный вызов неопределенной функции "${funcName}"`,
+                severity: 'warning'
+              });
+            }
+          }
+        }
+        
+        // Проверка ошибок типов в простых выражениях
+        if (/"\s*\+\s*\d+/.test(line) || /\d+\s*\+\s*"/.test(line)) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Ошибка типа: конкатенация строки и числа',
+            severity: 'error'
+          });
+        }
+        
+        // Проверка f-строк на корректность
+        if (line.includes('f"') || line.includes("f'")) {
+          const fStringRegex = /f(['"])(.*?)\1/g;
+          let fMatch;
+          while ((fMatch = fStringRegex.exec(line)) !== null) {
+            const fContent = fMatch[2];
+            // Проверка на незакрытые скобки в f-строке
+            const openCount = (fContent.match(/{/g) || []).length;
+            const closeCount = (fContent.match(/}/g) || []).length;
+            
+            if (openCount !== closeCount) {
+              newErrors.push({
+                lineNumber: lineIndex + 1,
+                message: 'Несбалансированные скобки {} в f-строке',
+                severity: 'error'
+              });
+            }
+            
+            // Проверка на двойные скобки в f-строке
+            if (fContent.includes('{{') && !fContent.includes('}}')) {
+              newErrors.push({
+                lineNumber: lineIndex + 1,
+                message: 'Открывающие двойные скобки {{, но нет закрывающих }}',
+                severity: 'warning'
+              });
+            }
+          }
+        }
+        
+        // Проверка аннотаций типов
+        const typeAnnotationRegex = /^\s*def\s+\w+\s*\([^)]*\)\s*->\s*([^:]+):/;
+        const typeMatch = line.match(typeAnnotationRegex);
+        if (typeMatch && typeMatch[1]) {
+          const returnType = typeMatch[1].trim();
+          if (!['int', 'str', 'float', 'bool', 'list', 'dict', 'tuple', 'set', 'None', 'Any'].includes(returnType) && 
+              !returnType.startsWith('List[') && 
+              !returnType.startsWith('Dict[') && 
+              !returnType.startsWith('Tuple[') && 
+              !returnType.startsWith('Set[') && 
+              !returnType.startsWith('Optional[')) {
+            
+            newErrors.push({
+              lineNumber: lineIndex + 1,
+              message: `Потенциально некорректная аннотация типа: ${returnType}`,
+              severity: 'warning'
+            });
+          }
+        }
+        
+        // Проверка использования неопределенных переменных
+        const variableUseRegex = /\b([a-zA-Z_]\w*)\b/g;
+        let varMatch;
+        
+        // Исключаем ключевые слова и встроенные функции
+        const pythonKeywords = new Set([
+          'and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif',
+          'else', 'except', 'False', 'finally', 'for', 'from', 'global', 'if', 'import',
+          'in', 'is', 'lambda', 'None', 'nonlocal', 'not', 'or', 'pass', 'raise',
+          'return', 'True', 'try', 'while', 'with', 'yield'
+        ]);
+        
+        // Список встроенных функций и типов Python
+        const builtins = new Set([
+          'abs', 'all', 'any', 'bin', 'bool', 'bytearray', 'bytes', 'chr', 'classmethod',
+          'compile', 'complex', 'delattr', 'dict', 'dir', 'divmod', 'enumerate', 'eval',
+          'exec', 'filter', 'float', 'format', 'frozenset', 'getattr', 'globals', 'hasattr',
+          'hash', 'help', 'hex', 'id', 'input', 'int', 'isinstance', 'issubclass', 'iter',
+          'len', 'list', 'locals', 'map', 'max', 'memoryview', 'min', 'next', 'object',
+          'oct', 'open', 'ord', 'pow', 'print', 'property', 'range', 'repr', 'reversed',
+          'round', 'set', 'setattr', 'slice', 'sorted', 'staticmethod', 'str', 'sum',
+          'super', 'tuple', 'type', 'vars', 'zip'
+        ]);
+        
+        // Пропускаем строки с определениями и комментариями
+        if (!line.includes('=') && !line.trim().startsWith('#') && !line.trim().startsWith('def ')) {
+          while ((varMatch = variableUseRegex.exec(line)) !== null) {
+            const varName = varMatch[1];
+            
+            // Пропускаем ключевые слова, встроенные функции, определенные функции и импортированные модули
+            if (!pythonKeywords.has(varName) && 
+                !builtins.has(varName) && 
+                !definedFunctions.has(varName) && 
+                !importedModules.has(varName.split('.')[0]) && 
+                !definedVariables.has(varName)) {
+              
+              // Пропускаем некоторые общие имена, которые могут быть параметрами функций
+              if (!['self', 'cls', 'args', 'kwargs'].includes(varName)) {
+                newErrors.push({
+                  lineNumber: lineIndex + 1,
+                  message: `Возможное использование неопределенной переменной "${varName}"`,
+                  severity: 'warning'
+                });
+              }
+            }
+          }
+        }
+        
+        // Проверка на циклические импорты (упрощенная версия)
+        if (line.includes('import') && line.includes('from')) {
+          const circularImportRegex = /from\s+(\w+)(?:\.\w+)*\s+import/;
+          const importMatch = line.match(circularImportRegex);
+          if (importMatch && importMatch[1]) {
+            const baseModule = importMatch[1];
+            
+            // Если имя текущего модуля совпадает с импортируемым, это может быть циклический импорт
+            if (baseModule === "__name__") {
+              newErrors.push({
+                lineNumber: lineIndex + 1,
+                message: 'Возможный циклический импорт',
+                severity: 'warning'
+              });
+            }
+          }
+        }
+      }
+      // ===================== РАСШИРЕННЫЕ ПРОВЕРКИ ДЛЯ POWERSHELL =====================
+      else if (lang === 'powershell') {
+        // Проверка наличия точки с запятой в конце строки
+        if (line.trim().endsWith(';') && 
+            !line.trim().startsWith('#') &&
+            line.length > 1) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'В PowerShell точка с запятой в конце строки не обязательна',
+            severity: 'warning'
+          });
+        }
+        
+        // Проверка операторов присваивания в условиях
+        if (/^\s*(if|elseif|while)\s+.*[^=!><]=(?!=).*\)/.test(line)) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Возможно ошибочное использование "=" вместо "-eq" в условии',
+            severity: 'error'
+          });
+        }
+        
+        // Проверка некорректных имен переменных
+        if (/\$[^a-zA-Z_{}]/.test(line) && !line.includes('$_')) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Неверное имя переменной',
+            severity: 'error'
+          });
+        }
+        
+        // Проверка вызова несуществующих командлетов
+        const cmdletRegex = /^\s*([A-Z]\w+-\w+)\b/;
+        const cmdMatch = line.match(cmdletRegex);
+        if (cmdMatch && cmdMatch[1]) {
+          const cmdlet = cmdMatch[1];
+          const commonCmdlets = [
+            'Get-Process', 'Get-Service', 'Get-Content', 'Set-Content', 'Write-Host',
+            'New-Item', 'Remove-Item', 'Start-Process', 'Stop-Process', 'Test-Path',
+            'Get-WmiObject', 'Get-CimInstance', 'Invoke-WebRequest', 'Invoke-RestMethod',
+            'Set-Location', 'Get-Location', 'Get-ChildItem', 'Get-Command', 'Get-Help',
+            'Get-Member', 'ForEach-Object', 'Where-Object', 'Select-Object'
+          ];
+          
+          if (!commonCmdlets.includes(cmdlet) && !definedFunctions.has(cmdlet)) {
+            newErrors.push({
+              lineNumber: lineIndex + 1,
+              message: `Возможный вызов несуществующего командлета "${cmdlet}"`,
+              severity: 'warning'
+            });
+          }
+        }
+        
+        // Проверка неверного использования параметров
+        const parameterRegex = /-(\w+)\s+/g;
+        let paramMatch;
+        while ((paramMatch = parameterRegex.exec(line)) !== null) {
+          const param = paramMatch[1];
+          if (line.includes('Get-Process') && !['Name', 'Id', 'ComputerName', 'Filter', 'InputObject'].includes(param)) {
+            newErrors.push({
+              lineNumber: lineIndex + 1,
+              message: `Возможный неверный параметр "${param}" для командлета Get-Process`,
+              severity: 'warning'
+            });
+          }
+          
+          if (line.includes('Get-Service') && !['Name', 'DisplayName', 'ComputerName', 'InputObject'].includes(param)) {
+            newErrors.push({
+              lineNumber: lineIndex + 1,
+              message: `Возможный неверный параметр "${param}" для командлета Get-Service`,
+              severity: 'warning'
+            });
+          }
+        }
+        
+        // Проверка на обращение к несуществующим свойствам объектов
+        const propertyAccessRegex = /\$\w+\.(\w+)/g;
+        let propMatch;
+        
+        while ((propMatch = propertyAccessRegex.exec(line)) !== null) {
+          const objName = line.substring(propMatch.index, propMatch.index + propMatch[0].indexOf('.'));
+          const propName = propMatch[1];
+          
+          // Проверка для известных объектов и их свойств
+          if (objName === '$disk' && !['Used', 'Free', 'Total', 'Name', 'Size', 'Root'].includes(propName)) {
+            newErrors.push({
+              lineNumber: lineIndex + 1,
+              message: `Обращение к возможно несуществующему свойству "${propName}" объекта ${objName}`,
+              severity: 'warning'
+            });
+          }
+          
+          if (objName === '$process' && !['Name', 'Id', 'CPU', 'Path', 'WorkingSet', 'Handles'].includes(propName)) {
+            newErrors.push({
+              lineNumber: lineIndex + 1,
+              message: `Обращение к возможно несуществующему свойству "${propName}" объекта ${objName}`,
+              severity: 'warning'
+            });
+          }
+        }
+        
+        // Проверка проблем с преобразованием типов
+        if (line.includes('[int]') && (line.includes('"') || line.includes("'"))) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Возможная проблема с преобразованием строки в число. Используйте [int]::Parse() для безопасного преобразования',
+            severity: 'warning'
+          });
+        }
+        
+        // Проверка правильности вызова .NET методов
+        if (line.includes('::') && !line.includes('(') && !line.includes('[') && !line.includes(']')) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Возможная ошибка в вызове статического метода .NET. Не хватает скобок ()',
+            severity: 'error'
+          });
+        }
+        
+        // Проверка на ошибки в конвейере (pipeline)
+        if (line.includes('|') && line.endsWith('|')) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Незавершенный конвейер команд',
+            severity: 'error'
+          });
+        }
+      }
+      // ===================== РАСШИРЕННЫЕ ПРОВЕРКИ ДЛЯ BASH/SHELL =====================
+      else if (lang === 'shell') {
+        // Проверка пробелов в условиях
+        if (/\[\s*\$/.test(line) || /\$\w+\s*\]/.test(line)) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Требуются пробелы после [ и перед ] в условиях',
+            severity: 'error'
+          });
+        }
+        
+        // Проверка на двойные скобки
+        if (/\[\s*\[.*\]\s*\]/.test(line) && !/\[\[\s*.*\s*\]\]/.test(line)) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Используйте [[ ]] вместо [ [ ] ]',
+            severity: 'warning'
+          });
+        }
+        
+        // Опасное использование переменных
+        if (/rm\s+.*\$\w+/.test(line) && !(/"\$\w+"/.test(line) || /'\$\w+'/.test(line))) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Небезопасное использование переменной без кавычек',
+            severity: 'warning'
+          });
+        }
+        
+        // Проверка условий в if
+        if (/^\s*if\s+\[\s*.*[<>].*/i.test(line) && !(/\s-[lg]t\s/.test(line))) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Используйте -lt, -gt вместо < > в условиях',
+            severity: 'error'
+          });
+        }
+        
+        // Проверка на ошибки в регулярных выражениях
+        if (line.includes('=~') && line.includes('[') && !line.includes(']')) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Незакрытый класс символов [] в регулярном выражении',
+            severity: 'error'
+          });
+        }
+        
+        // Проверка на проблемы с экранированием в конструкциях
+        const escapeMissingRegex = /echo\s+".*\$\w+.*"/;
+        if (escapeMissingRegex.test(line) && line.includes('\\n') && !line.includes('\\"')) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Возможно неэкранированные спецсимволы в строке с подстановкой переменных',
+            severity: 'warning'
+          });
+        }
+        
+        // Проверка на ошибки в арифметических выражениях
+        if (line.includes('$(( ') || line.includes('$((')) {
+          const arithRegex = /\$\(\(\s*([^)]+)\s*\)\)/;
+          const arithMatch = line.match(arithRegex);
+          if (arithMatch && arithMatch[1]) {
+            const expr = arithMatch[1];
+            
+            // Проверка незавершенных выражений
+            if (/[+\-*/%]\s*$/.test(expr)) {
+              newErrors.push({
+                lineNumber: lineIndex + 1,
+                message: 'Незавершенное арифметическое выражение',
+                severity: 'error'
+              });
+            }
+            
+            // Проверка деления на 0
+            if (expr.includes('/ 0') || expr.includes('/0')) {
+              newErrors.push({
+                lineNumber: lineIndex + 1,
+                message: 'Возможное деление на ноль',
+                severity: 'error'
+              });
+            }
+            
+            // Проверка недопустимых операторов
+            if (/[^+\-*/%=!<>&|^()\s\d\w]/.test(expr)) {
+              newErrors.push({
+                lineNumber: lineIndex + 1,
+                message: 'Потенциально недопустимый оператор в арифметическом выражении',
+                severity: 'error'
+              });
+            }
+          }
+        }
+        
+        // Проверка проблем с глобальными шаблонами (globbing)
+        if (line.includes('rm') && (line.includes('*') || line.includes('?'))) {
+          if (!line.includes('-i') && !line.includes('--interactive')) {
+            newErrors.push({
+              lineNumber: lineIndex + 1,
+              message: 'Потенциально опасное использование rm с глобальными шаблонами. Добавьте флаг -i для безопасности',
+              severity: 'warning'
+            });
+          }
+        }
+        
+        // Проверка неверного использования сигналов
+        if (line.includes('kill') && !/kill\s+(-\w+\s+)?\d+/.test(line)) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Возможно некорректное использование команды kill. Требуется ID процесса',
+            severity: 'error'
+          });
+        }
+        
+        // Проверка неправильной подстановки переменных
+        if (line.includes('${') && !line.includes('}')) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Незакрытая фигурная скобка в подстановке переменной',
+            severity: 'error'
+          });
+        }
+        
+        // Проверка неверных перенаправлений
+        if (/>>\s*$/.test(line) || />\s*$/.test(line) || /<\s*$/.test(line)) {
+          newErrors.push({
+            lineNumber: lineIndex + 1,
+            message: 'Незавершенное перенаправление ввода/вывода',
+            severity: 'error'
+          });
+        }
+      }
       
-      if (openBrackets > closeBrackets) {
+      lineIndex++;
+    }
+    
+    // Проверка оставшихся открытых скобок
+    while (stack.length > 0) {
+      const bracket = stack.pop();
+      if (bracket) {
         newErrors.push({
-          lineNumber: index + 1,
-          message: 'Незакрытая круглая скобка',
+          lineNumber: bracket.line + 1,
+          message: `Незакрытая скобка "${bracket.char}"`,
           severity: 'error'
         });
-      } else if (closeBrackets > openBrackets) {
+      }
+    }
+    
+    // ===================== ПРОВЕРКИ ВСЕГО ФАЙЛА =====================
+    // Языкоспецифические проверки для всего файла
+    if (lang === 'python') {
+      // Проверка на незакрытые многострочные комментарии
+      const tripleQuotes = (fullContent.match(/"""/g) || []).length;
+      if (tripleQuotes % 2 !== 0) {
+        // Найти строку с незакрытым комментарием
+        let foundLine = 1;
+        let count = 0;
+        for (let i = 0; i < lines.length; i++) {
+          const matches = (lines[i].match(/"""/g) || []).length;
+          count += matches;
+          if (count % 2 !== 0) {
+            foundLine = i + 1;
+            break;
+          }
+        }
+        
         newErrors.push({
-          lineNumber: index + 1,
-          message: 'Лишняя закрывающая круглая скобка',
+          lineNumber: foundLine,
+          message: 'Незакрытый многострочный комментарий',
           severity: 'error'
         });
       }
       
-      // Проверка наличия точки с запятой в конце строки для PowerShell
-      if (lang === 'powershell' && line.trim().endsWith(';')) {
+      // Проверка незавершенных импортов
+      const importRegex = /^\s*from\s+\w+\s+import\s*$/;
+      for (let i = 0; i < lines.length; i++) {
+        if (importRegex.test(lines[i])) {
+          newErrors.push({
+            lineNumber: i + 1,
+            message: 'Незавершенный импорт',
+            severity: 'error'
+          });
+        }
+      }
+    } else if (lang === 'powershell') {
+      // Проверка на незакрытый here-string
+      const hereStrings = (fullContent.match(/@"/g) || []).length;
+      const hereStringsEnd = (fullContent.match(/"@/g) || []).length;
+      
+      if (hereStrings > hereStringsEnd) {
+        // Найти строку с незакрытым here-string
+        let foundLine = 1;
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].includes('@"') && !lines[i].includes('"@')) {
+            foundLine = i + 1;
+            break;
+          }
+        }
+        
         newErrors.push({
-          lineNumber: index + 1,
-          message: 'В PowerShell точка с запятой в конце строки не обязательна',
-          severity: 'warning'
+          lineNumber: foundLine,
+          message: 'Незакрытый here-string',
+          severity: 'error'
         });
       }
-    });
+    } else if (lang === 'shell') {
+      // Проверка на незакрытый heredoc
+      const heredocStart = /<<\s*(\w+)/;
+      for (let i = 0; i < lines.length; i++) {
+        const match = lines[i].match(heredocStart);
+        if (match) {
+          const endTag = match[1];
+          let found = false;
+          
+          // Искать соответствующий закрывающий тег
+          for (let j = i + 1; j < lines.length; j++) {
+            if (lines[j].trim() === endTag) {
+              found = true;
+              break;
+            }
+          }
+          
+          if (!found) {
+            newErrors.push({
+              lineNumber: i + 1,
+              message: `Незакрытый heredoc (отсутствует тег "${endTag}")`,
+              severity: 'error'
+            });
+          }
+        }
+      }
+    }
     
     setErrors(newErrors);
     
-    // Если найдены ошибки, отображаем их в консоли
-    if (newErrors.length > 0) {
-      const errorMessages = newErrors.map(err => 
-        `Строка ${err.lineNumber}: ${err.message} (${err.severity})`
-      ).join('\n');
-      
-      setConsoleOutput(`Найдены проблемы в скрипте:\n${errorMessages}`);
+    // Обновляем массив problems на основе найденных ошибок
+    const newProblems = newErrors.map(err => ({
+      type: err.severity === 'error' ? 'error' as const : 'warning' as const,
+      message: err.message,
+      location: `строка ${err.lineNumber}`
+    }));
+    
+    setProblems(newProblems);
+    
+    // Если обнаружены проблемы при интерактивной работе (не при инициализации), 
+    // переключаемся на вкладку с проблемами
+    if (newErrors.length > 0 && editorInstance) {
+      // Не переключаем автоматически вкладку при проверке во время загрузки,
+      // делаем это только при интерактивной работе пользователя
+      setActiveConsoleTab('problems');
     }
   };
 
@@ -429,15 +1333,17 @@ const ScriptsTab: React.FC = () => {
   const handleRunScript = () => {
     setIsRunning(true);
     setConsoleOutput("Запуск скрипта...\n");
+    setActiveConsoleTab('output'); // Автоматически переключаемся на вкладку вывода при запуске
     
     // Проверяем наличие ошибок перед выполнением
     checkForErrors(scriptContent, language);
     
-    // Если есть ошибки, прерываем выполнение
+    // Если есть ошибки, прерываем выполнение и переключаемся на вкладку проблем
     if (errors.length > 0) {
       setTimeout(() => {
         setConsoleOutput(prev => prev + "\nОшибка: найдены синтаксические ошибки в скрипте. Исправьте их перед запуском.");
         setIsRunning(false);
+        setActiveConsoleTab('problems'); // Переключаемся на вкладку проблем при ошибке
       }, 500);
       return;
     }
@@ -484,14 +1390,111 @@ const ScriptsTab: React.FC = () => {
     setErrors([]);
   };
 
-  // Преобразование вывода консоли в строки
-  const renderConsoleOutput = () => {
-    const lines = consoleOutput.split('\n');
-    return lines.map((line, index) => (
-      <div key={index} className={`code-line ${line.includes('Ошибка:') || line.includes('error') ? 'console-error' : ''}`}>
-        <span className="code-line-content">{line}</span>
+  // Обработка ввода в терминале
+  const handleTerminalInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setTerminalInput(e.target.value);
+  };
+
+  // Отправка команды в терминал
+  const handleTerminalSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!terminalInput.trim()) return;
+
+    // Добавляем команду в историю
+    const newCommand = {
+      command: terminalInput,
+      output: `Выполнение команды: ${terminalInput}\nРезультат: Команда успешно выполнена`
+    };
+
+    setTerminalHistory([...terminalHistory, newCommand]);
+    setTerminalInput('');
+  };
+
+  // Рендер истории терминала
+  const renderTerminalHistory = () => {
+    return (
+      <div className="terminal-history">
+        {terminalHistory.map((entry, index) => (
+          <div key={index} className="terminal-entry">
+            <div className="terminal-command">$ {entry.command}</div>
+            <div className="terminal-output">{entry.output}</div>
+          </div>
+        ))}
+        <form className="terminal-form" onSubmit={handleTerminalSubmit}>
+          <span className="terminal-prompt">$</span>
+          <input
+            type="text"
+            className="terminal-input"
+            value={terminalInput}
+            onChange={handleTerminalInputChange}
+            placeholder="Введите команду..."
+            autoFocus
+          />
+        </form>
       </div>
-    ));
+    );
+  };
+
+  // Рендер проблем
+  const renderProblems = () => {
+    // Если нет проблем, показываем сообщение
+    if (problems.length === 0) {
+      return <div className="no-problems">Проблем не обнаружено</div>;
+    }
+
+    return (
+      <div className="problems-list">
+        {problems.map((problem, index) => {
+          // Извлекаем номер строки из локации для перехода
+          const lineNumber = parseInt(problem.location.replace(/[^\d]/g, '')) || 1;
+          
+          return (
+            <div 
+              key={index} 
+              className={`problem-item problem-${problem.type}`}
+              onClick={() => {
+                // Переходим к соответствующей строке в редакторе
+                if (editorInstance) {
+                  editorInstance.revealLineInCenter(lineNumber);
+                  editorInstance.setPosition({
+                    lineNumber: lineNumber,
+                    column: 1
+                  });
+                  editorInstance.focus();
+                }
+              }}
+            >
+              <div className="problem-icon">
+                {problem.type === 'error' ? '⛔' : '⚠️'}
+              </div>
+              <div className="problem-location">{problem.location}</div>
+              <div className="problem-message">{problem.message}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Рендер содержимого консоли в зависимости от активной вкладки
+  const renderConsoleContent = () => {
+    switch (activeConsoleTab) {
+      case 'terminal':
+        return renderTerminalHistory();
+      case 'problems':
+        return renderProblems();
+      case 'output':
+      default:
+        return (
+          <div className="code-output">
+            {consoleOutput.split('\n').map((line, i) => (
+              <div key={i} className={`code-line ${line.includes('Error') ? 'console-error' : ''}`}>
+                <span>{line}</span>
+              </div>
+            ))}
+          </div>
+        );
+    }
   };
 
   // Опции для Monaco Editor
@@ -519,35 +1522,37 @@ const ScriptsTab: React.FC = () => {
               <span>{activeTab}</span>
               <span className="editor-tab-close">×</span>
             </div>
-            <div className="editor-tab-add">+</div>
+            <div className="editor-tab-add" onClick={handleNewScript}>+</div>
             <LanguageSelector language={language} onChange={handleLanguageChange} />
+            
+            <div className="header-actions">
+              <button 
+                className="btn btn-primary btn-run" 
+                onClick={handleRunScript}
+                disabled={isRunning}
+              >
+                {isRunning ? "Выполняется..." : "▶ Запустить"}
+              </button>
+              <button 
+                className="btn btn-secondary btn-save"
+                onClick={handleSaveScript}
+              >
+                💾 Сохранить
+              </button>
+              <button 
+                className="btn btn-new"
+                onClick={handleNewScript}
+              >
+                + Новый скрипт
+              </button>
+              {errors.length > 0 && (
+                <div className="script-error-indicator">
+                  {errors.length} ошибок
+                </div>
+              )}
+            </div>
           </div>
-          <div className="script-actions">
-            <button 
-              className="btn btn-run" 
-              onClick={handleRunScript}
-              disabled={isRunning}
-            >
-              {isRunning ? "Выполняется..." : "▶ Запустить"}
-            </button>
-            <button 
-              className="btn btn-save"
-              onClick={handleSaveScript}
-            >
-              💾 Сохранить
-            </button>
-            <button 
-              className="btn btn-new"
-              onClick={handleNewScript}
-            >
-              + Новый скрипт
-            </button>
-            {errors.length > 0 && (
-              <div className="script-error-indicator">
-                {errors.length} ошибок
-              </div>
-            )}
-          </div>
+          
           <div className="script-editor-content">
             <Editor
               height="100%"
@@ -559,10 +1564,33 @@ const ScriptsTab: React.FC = () => {
               onMount={handleEditorDidMount}
             />
           </div>
+          
           <div className="script-console">
-            <div className="script-console-title">КОНСОЛЬ СКРИПТА</div>
+            <div className="script-console-header">
+              <div className="script-console-tabs">
+                <div 
+                  className={`script-console-tab ${activeConsoleTab === 'output' ? 'active' : ''}`}
+                  onClick={() => setActiveConsoleTab('output')}
+                >
+                  Вывод
+                </div>
+                <div 
+                  className={`script-console-tab ${activeConsoleTab === 'terminal' ? 'active' : ''}`}
+                  onClick={() => setActiveConsoleTab('terminal')}
+                >
+                  Терминал
+                </div>
+                <div 
+                  className={`script-console-tab ${activeConsoleTab === 'problems' ? 'active' : ''}`}
+                  onClick={() => setActiveConsoleTab('problems')}
+                >
+                  Проблемы
+                  {problems.length > 0 && <span className="problem-badge">{problems.length}</span>}
+                </div>
+              </div>
+            </div>
             <div className="console-output">
-              {renderConsoleOutput()}
+              {renderConsoleContent()}
             </div>
           </div>
         </div>
