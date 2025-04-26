@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
 import "./ScriptsTab.css";
+import { invoke } from "@tauri-apps/api/core";
+import { writeBinaryFile, createDir, BaseDirectory } from "@tauri-apps/api/fs";
+import { tempdir } from "@tauri-apps/api/os";
+import { v4 as uuidv4 } from "uuid";
+import { Command } from "@tauri-apps/api/shell";
 
 // Типы для языков программирования
 type LanguageType = "powershell" | "shell" | "python";
@@ -135,7 +140,18 @@ if __name__ == "__main__"  # Отсутствует двоеточие
 
 // Пример содержимого скрипта PowerShell
 const DEMO_SCRIPT_POWERSHELL = `# Проверка системы с использованием PowerShell
+
+# Устанавливаем кодировку вывода в UTF-8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
+$PSDefaultParameterValues['*:Encoding'] = 'utf8'
+
 Write-Host "Проверка системы..."
+
+# Получаем текущую дату и время
+$currentDate = Get-Date -Format "dd.MM.yyyy HH:mm:ss"
+Write-Output "Текущая дата и время: $currentDate"
 
 # Получаем информацию о системе
 $osInfo = Get-CimInstance Win32_OperatingSystem
@@ -792,7 +808,14 @@ const ScriptsTab: React.FC = () => {
           'len', 'list', 'locals', 'map', 'max', 'memoryview', 'min', 'next', 'object',
           'oct', 'open', 'ord', 'pow', 'print', 'property', 'range', 'repr', 'reversed',
           'round', 'set', 'setattr', 'slice', 'sorted', 'staticmethod', 'str', 'sum',
-          'super', 'tuple', 'type', 'vars', 'zip'
+          'super', 'tuple', 'type', 'vars', 'zip', 'now'
+        ]);
+        
+        // Известные методы классов
+        const knownClassMethods = new Set([
+          'now', 'today', 'strftime', 'strptime', 'replace', 'append', 'extend', 'insert',
+          'remove', 'pop', 'clear', 'index', 'count', 'sort', 'reverse', 'copy', 'join',
+          'strip', 'lstrip', 'rstrip', 'upper', 'lower', 'format', 'split', 'rsplit'
         ]);
         
         // Пропускаем строки с определениями и комментариями
@@ -807,8 +830,10 @@ const ScriptsTab: React.FC = () => {
                 !importedModules.has(varName.split('.')[0]) && 
                 !definedVariables.has(varName)) {
               
-              // Пропускаем некоторые общие имена, которые могут быть параметрами функций
-              if (!['self', 'cls', 'args', 'kwargs'].includes(varName)) {
+              // Пропускаем некоторые общие имена и f-строки
+              if (!['self', 'cls', 'args', 'kwargs', 'f'].includes(varName) && 
+                  // Проверяем, не является ли это методом класса в конструкции вида obj.method()
+                  !(line.includes('.' + varName) && knownClassMethods.has(varName))) {
                 newErrors.push({
                   lineNumber: lineIndex + 1,
                   message: `Возможное использование неопределенной переменной "${varName}"`,
@@ -874,7 +899,7 @@ const ScriptsTab: React.FC = () => {
         if (cmdMatch && cmdMatch[1]) {
           const cmdlet = cmdMatch[1];
           const commonCmdlets = [
-            'Get-Process', 'Get-Service', 'Get-Content', 'Set-Content', 'Write-Host',
+            'Get-Process', 'Get-Service', 'Get-Content', 'Set-Content', 'Write-Host', 'Write-Output',
             'New-Item', 'Remove-Item', 'Start-Process', 'Stop-Process', 'Test-Path',
             'Get-WmiObject', 'Get-CimInstance', 'Invoke-WebRequest', 'Invoke-RestMethod',
             'Set-Location', 'Get-Location', 'Get-ChildItem', 'Get-Command', 'Get-Help',
@@ -1330,7 +1355,7 @@ const ScriptsTab: React.FC = () => {
   }, [errors, editorInstance, monacoInstance]);
 
   // Обработчик запуска скрипта
-  const handleRunScript = () => {
+  const handleRunScript = async () => {
     setIsRunning(true);
     setConsoleOutput("Запуск скрипта...\n");
     setActiveConsoleTab('output'); // Автоматически переключаемся на вкладку вывода при запуске
@@ -1348,11 +1373,23 @@ const ScriptsTab: React.FC = () => {
       return;
     }
     
-    // Имитация выполнения скрипта
-    setTimeout(() => {
-      setConsoleOutput(prev => prev + "\n" + DEMO_CONSOLE_OUTPUT);
+    try {
+      // Вызываем Rust функцию для запуска скрипта через invoke
+      const result = await invoke<string>("run_script", { 
+        script: scriptContent,
+        language: language
+      });
+      
+      // Выводим результат в консоль
+      setConsoleOutput(prev => prev + "\n" + result);
+      
+    } catch (error: unknown) {
+      console.error("Ошибка при запуске скрипта:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setConsoleOutput(prev => prev + `\n\nОшибка при запуске скрипта: ${errorMessage}`);
+    } finally {
       setIsRunning(false);
-    }, 1500);
+    }
   };
 
   // Обработчик сохранения скрипта

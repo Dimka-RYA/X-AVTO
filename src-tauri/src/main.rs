@@ -89,6 +89,9 @@ fn main() {
             utils::system_info::get_temperatures,
             utils::system_info::set_monitoring_active,
             
+            // Запуск скриптов
+            utils::script_runner::run_script,
+            
             // Компоненты интерфейса
             minimize_window,
             toggle_maximize,
