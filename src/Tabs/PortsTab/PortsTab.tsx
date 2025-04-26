@@ -5,6 +5,7 @@ import { Port, ColumnWidths } from './types';
 import './Ports.css';
 import { clearAddressCache } from './utils/addressFormatter';
 import { usePorts } from './hooks/usePorts';
+import { Search } from 'lucide-react';
 
 // Начальные ширины столбцов таблицы
 const initialColumnWidths: ColumnWidths = {
@@ -85,13 +86,16 @@ export const PortsTab: React.FC = () => {
       <div className="ports-header">
         <h2>Открытые сетевые порты {ports.length > 0 ? `(${ports.length})` : ''}</h2>
         <div className="ports-actions">
-          <input
-            type="text"
-            placeholder="Поиск по адресу, порту, процессу..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="search-input"
-          />
+          <div className="search-input-wrapper">
+            <Search className="search-icon" size={18} color="#565555" />
+            <input
+              type="text"
+              placeholder="Поиск по адресу, порту, процессу..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="search-input"
+            />
+          </div>
           <button 
             className={`refresh-button ${isRefreshing ? 'refreshing' : ''}`}
             onClick={handleRefresh}

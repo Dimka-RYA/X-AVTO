@@ -768,74 +768,213 @@ pre {
 .mqtt-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 15px;
   width: 100%;
 }
 
-.mqtt-topic-controls {
-  margin-top: 10px;
+.connection-status {
+  display: flex;
+  align-items: center;
+  margin-top: 5px;
+  gap: 15px;
 }
 
-.topic-container {
+.connected-indicator {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background-color: #4CAF50;
+  border-radius: 50%;
+  margin-left: 8px;
+}
+
+.toggle-advanced-button {
+  margin-left: auto;
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background-color: #333;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.toggle-advanced-button:hover {
+  background-color: #444;
+}
+
+.advanced-settings {
+  background-color: #333;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 5px;
+}
+
+.setting-row {
   display: flex;
   gap: 10px;
-  align-items: center;
+  margin-bottom: 10px;
 }
 
-.topic-input {
-  flex-grow: 2;
+.setting-row:last-child {
+  margin-bottom: 0;
+}
+
+.client-id-input, .username-input, .password-input {
   padding: 8px 12px;
   border-radius: 4px;
-  border: 1px solid #333;
+  border: 1px solid #444;
   background-color: #242424;
   color: #fff;
-  height: 36px;
+  flex: 1;
 }
 
-.qos-container {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-}
-
-.qos-container label {
-  color: #e0e0e0;
-}
-
-.qos-select {
-  padding: 8px;
-  border-radius: 4px;
-  border: 1px solid #333;
-  background-color: #242424;
-  color: #fff;
-}
-
-.subscribe-button {
-  padding: 8px 15px;
+.subscribe-button, .unsub-button {
+  padding: 6px 12px;
   border-radius: 4px;
   border: none;
-  background-color: #2196F3;
+  background-color: #1976d2;
   color: white;
   cursor: pointer;
-  transition: background-color 0.3s ease;
-  white-space: nowrap;
-  height: 36px;
+  font-size: 13px;
+}
+
+.unsub-button {
+  background-color: #d32f2f;
+  padding: 3px 8px;
+  font-size: 12px;
 }
 
 .subscribe-button:hover {
-  background-color: #1976D2;
+  background-color: #1565c0;
 }
 
-.subscribe-button:disabled {
+.unsub-button:hover {
+  background-color: #c62828;
+}
+
+.subscribe-button:disabled, .unsub-button:disabled {
   background-color: #555;
   cursor: not-allowed;
 }
 
-.messages-title {
-  margin-top: 15px;
-  margin-bottom: 5px;
-  font-weight: bold;
+.subscribed-topics {
+  background-color: #333;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 5px;
+}
+
+.subscribed-topics h4 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 14px;
   color: #e0e0e0;
+}
+
+.topics-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.topic-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #444;
+  padding: 4px 10px;
+  border-radius: 15px;
+  font-size: 13px;
+}
+
+.messages-container {
+  background-color: #262626;
+  border-radius: 6px;
+  padding: 10px;
+  margin-top: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.messages-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.messages-title {
+  margin: 0;
+  font-size: 16px;
+  color: #e0e0e0;
+}
+
+.clear-messages-button {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: none;
+  background-color: #424242;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.clear-messages-button:hover {
+  background-color: #555;
+}
+
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message-item {
+  padding: 8px 12px;
+  border-radius: 6px;
+  word-break: break-word;
+}
+
+.message-item.system {
+  background-color: #2d2d2d;
+  color: #bdbdbd;
+  font-style: italic;
+}
+
+.message-item.received {
+  background-color: #1e3a5f;
+  color: #e0e0e0;
+}
+
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+
+.message-topic {
+  font-weight: bold;
+  color: #90caf9;
+}
+
+.message-time {
+  color: #9e9e9e;
+}
+
+.message-text {
+  display: block;
+  word-break: break-word;
+}
+
+.error-message {
+  color: #f44336;
+  background-color: rgba(244, 67, 54, 0.1);
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-top: 5px;
+  font-size: 14px;
 }
 
 /* Dark mode additions for MQTT */

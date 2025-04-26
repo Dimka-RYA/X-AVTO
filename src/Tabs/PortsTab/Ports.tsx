@@ -157,17 +157,18 @@ export const Ports: React.FC = () => {
         {/* Отображаем количество портов над таблицей */}
         <div className="ports-summary">
           {loading ? (
-            <span className="loading-text">Загрузка данных... {ports.length > 0 ? `(найдено ${ports.length} портов)` : ''}</span>
+            <>
+              <span className="loading-text">Загрузка данных... {ports.length > 0 ? `(найдено ${ports.length} портов)` : ''}</span>
+              <button 
+                onClick={() => refreshPorts()}
+                className="refresh-button"
+                title="Ускорить процесс загрузки данных"
+              >
+                Принудительно обновить
+              </button>
+            </>
           ) : (
             <span>Найдено {ports.length} портов</span>
-          )}
-          {loading && (
-            <button 
-              onClick={() => refreshPorts()}
-              className="refresh-button"
-            >
-              Принудительно обновить
-            </button>
           )}
         </div>
         
