@@ -1,11 +1,10 @@
-use std::env;
 use std::fs;
 use std::process::{Command, Stdio};
-use std::io::{Read, Write};
-use std::path::PathBuf;
-use tempfile::{tempdir, TempDir};
+use std::io::Write;
 use tauri::command;
 use uuid::Uuid;
+use tempfile::tempdir;
+use std::env;
 
 /// Функция для запуска скрипта на исполнение
 #[command]
@@ -135,6 +134,25 @@ Write-Host \"\"
         // Для PowerShell используем специальную команду с установкой кодировки UTF-8
         cmd_args.push("-Command".to_string());
         cmd_args.push(format!("$OutputEncoding = [System.Text.Encoding]::UTF8; & '{}'", file_path_str));
+    } else if language == "python" {
+        // Для Python добавляем параметры для обработки UTF-8
+        cmd_args.clear(); // Очищаем предыдущие аргументы
+        
+        // Используем специальный аргумент PYTHONIOENCODING для корректной работы с русскими символами
+        // и добавляем -u для отключения буферизации вывода
+        #[cfg(windows)]
+        {
+            cmd_args.push("-u".to_string());
+            cmd_args.push(file_path_str);
+            
+            // Устанавливаем переменную окружения для кодировки UTF-8
+            std::env::set_var("PYTHONIOENCODING", "utf-8");
+        }
+        #[cfg(not(windows))]
+        {
+            cmd_args.push("-u".to_string());
+            cmd_args.push(file_path_str);
+        }
     } else {
         // Для остальных языков просто добавляем путь как аргумент
         cmd_args.push(file_path_str);
@@ -172,4 +190,53 @@ Write-Host \"\"
     
     // Временная директория будет удалена автоматически при выходе из функции
     Ok(result)
+}
+
+/// Функция для сохранения скрипта в файл
+/// Эта функция сохраняет скрипт в папку "Документы" пользователя
+#[command]
+pub async fn save_script(_app: tauri::AppHandle, script: String, language: String) -> Result<String, String> {
+    // Определяем расширение файла в зависимости от языка
+    let extension = match language.as_str() {
+        "python" => "py",
+        "powershell" => "ps1",
+        "shell" => "sh",
+        _ => "txt"
+    };
+    
+    // Генерируем уникальное имя файла
+    let script_id = Uuid::new_v4().to_string();
+    let filename = format!("script_{}_{}.{}", language, script_id, extension);
+    
+    // Пытаемся получить директорию Документы пользователя
+    let home_dir = match env::var("USERPROFILE")
+        .or_else(|_| env::var("HOME")) {
+        Ok(path) => path,
+        Err(_) => return Err("Не удалось определить домашнюю директорию пользователя".to_string())
+    };
+    
+    // Создаем путь к директории "Документы/XAdmin/scripts"
+    let mut scripts_dir = std::path::PathBuf::from(home_dir);
+    scripts_dir.push("Documents");
+    scripts_dir.push("XAdmin");
+    scripts_dir.push("scripts");
+    
+    // Создаем директорию, если она не существует
+    if !scripts_dir.exists() {
+        fs::create_dir_all(&scripts_dir)
+            .map_err(|e| format!("Ошибка при создании директории scripts: {}", e))?;
+    }
+    
+    // Формируем полный путь к файлу
+    let file_path = scripts_dir.join(&filename);
+    
+    // Сохраняем скрипт в файл
+    match fs::write(&file_path, script) {
+        Ok(_) => {
+            // Получаем абсолютный путь для лучшего отображения пользователю
+            let display_path = file_path.display().to_string();
+            Ok(format!("Скрипт успешно сохранен в {}", display_path))
+        },
+        Err(e) => Err(format!("Ошибка при сохранении файла: {}", e))
+    }
 } 

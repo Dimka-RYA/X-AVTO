@@ -6,9 +6,16 @@ import { writeBinaryFile, createDir, BaseDirectory } from "@tauri-apps/api/fs";
 import { tempdir } from "@tauri-apps/api/os";
 import { v4 as uuidv4 } from "uuid";
 import { Command } from "@tauri-apps/api/shell";
+import { Terminal as XTerm } from "xterm";
+import { FitAddon } from "xterm-addon-fit";
+import { WebLinksAddon } from "xterm-addon-web-links";
+import { Unicode11Addon } from "xterm-addon-unicode11";
+import { listen } from "@tauri-apps/api/event";
+import "xterm/css/xterm.css";
 
 // Типы для языков программирования
 type LanguageType = "powershell" | "shell" | "python";
+type ConsoleTabType = 'output' | 'terminal' | 'problems';
 
 // Интерфейс для скриптов
 interface ScriptItem {
@@ -27,24 +34,53 @@ interface ScriptError {
 }
 
 // Пример содержимого скрипта Python
-const DEMO_SCRIPT_PYTHON = `import os
+const DEMO_SCRIPT_PYTHON = `# -*- coding: utf-8 -*-
+import os
 import sys
 import time
+from datetime import datetime
+
+# Устанавливаем кодировку стандартного вывода для работы с русским текстом
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
 
 def check_system():
     print("Проверка системы...")
+    # Получаем текущую дату и время
+    current_date = datetime.now()
+    print(f"Текущая дата и время: {current_date}")
+    
     # Получаем информацию о системе
-    system_info = os.uname()
-    print(f"Операционная система: {system_info.sysname}")
-    print(f"Версия: {system_info.release}")
+    try:
+        import platform
+        system_info = platform.uname()
+        print(f"Операционная система: {system_info.system}")
+        print(f"Версия: {system_info.release}")
+    except:
+        print("Не удалось получить информацию о системе")
     
     # Проверяем свободное место
-    disk_space = os.statvfs('/')
-    free_space = disk_space.f_frsize * disk_space.f_bavail
-    total_space = disk_space.f_frsize * disk_space.f_blocks
-    used_space = total_space - free_space
+    try:
+        if os.name == 'posix':  # Linux/Unix
+            disk_space = os.statvfs('/')
+            free_space = disk_space.f_frsize * disk_space.f_bavail
+            total_space = disk_space.f_frsize * disk_space.f_blocks
+            used_space = total_space - free_space
+            print(f"Использовано диска: {used_space / total_space:.2f}%")
+        else:  # Windows
+            import ctypes
+            free_bytes = ctypes.c_ulonglong(0)
+            total_bytes = ctypes.c_ulonglong(0)
+            ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+                ctypes.c_wchar_p("C:\\"), None, ctypes.pointer(total_bytes), ctypes.pointer(free_bytes)
+            )
+            free_space = free_bytes.value
+            total_space = total_bytes.value
+            used_space = total_space - free_space
+            print(f"Использовано диска: {used_space / total_space:.2f}%")
+    except:
+        print("Не удалось проверить свободное место")
     
-    print(f"Использовано диска: {used_space / total_space:.2f}%")
     return True
 
 if __name__ == "__main__":
@@ -403,6 +439,17 @@ const ScriptsTab: React.FC = () => {
   const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
   const [activeConsoleTab, setActiveConsoleTab] = useState<'output' | 'terminal' | 'problems'>('output');
   const [problems, setProblems] = useState<Array<{type: 'error' | 'warning', message: string, location: string}>>([]);
+  
+  // Новые состояния для xterm терминала
+  const [xtermInstance, setXtermInstance] = useState<XTerm | null>(null);
+  const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
+  const [terminalId, setTerminalId] = useState<number | null>(null);
+  const [unlistener, setUnlistener] = useState<(() => void) | null>(null);
+  
+  // Refs для терминала
+  const terminalRef = useRef<HTMLDivElement>(null);
+  const terminalInitializedRef = useRef<boolean>(false);
+  const commandBufferRef = useRef<string>('');
 
   // Получаем шаблонный код для выбранного языка
   const getTemplateForLanguage = (lang: LanguageType): string => {
@@ -433,6 +480,25 @@ const ScriptsTab: React.FC = () => {
       
       // Базовая проверка на наличие ошибок
       checkForErrors(script.content || getTemplateForLanguage(script.language), script.language);
+      
+      // При переключении скриптов переинициализируем терминал для предотвращения багов
+      if (terminalInitializedRef.current && terminalRef.current) {
+        // Сбрасываем терминал
+        if (xtermInstance) {
+          xtermInstance.dispose();
+          setXtermInstance(null);
+        }
+        
+        terminalRef.current.innerHTML = '';
+        terminalInitializedRef.current = false;
+        
+        // Реинициализируем терминал если вкладка терминала активна
+        if (activeConsoleTab === 'terminal') {
+          setTimeout(() => {
+            initializeTerminal();
+          }, 100);
+        }
+      }
     }
   };
 
@@ -719,7 +785,16 @@ const ScriptsTab: React.FC = () => {
           if (!definedFunctions.has(funcName) && 
               !['print', 'len', 'range', 'str', 'int', 'float', 'list', 'dict', 'set', 'tuple', 'sum', 'min', 'max'].includes(funcName)) {
             const moduleCall = funcName.split('.');
-            if (moduleCall.length === 1 || !importedModules.has(moduleCall[0])) {
+            // Если это вызов метода объекта и объект импортирован
+            if (moduleCall.length > 1 && importedModules.has(moduleCall[0])) {
+              // Это нормальный вызов метода импортированного объекта, пропускаем
+              continue;
+            }
+            // Специальная обработка для datetime.now()
+            if (moduleCall.length > 1 && moduleCall[0] === 'datetime' && moduleCall[1] === 'now') {
+              continue;
+            }
+            if (moduleCall.length === 1 && !importedModules.has(moduleCall[0])) {
               newErrors.push({
                 lineNumber: lineIndex + 1,
                 message: `Возможный вызов неопределенной функции "${funcName}"`,
@@ -1269,6 +1344,12 @@ const ScriptsTab: React.FC = () => {
     // Настраиваем редактор для подсветки ошибок
     monaco.editor.setModelMarkers(editor.getModel()!, 'owner', []);
     
+    // Настраиваем скролл-бары редактора
+    const editorElement = editor.getDomNode();
+    if (editorElement) {
+      editorElement.style.overflow = 'hidden'; // Предотвращаем двойные скролл-бары
+    }
+    
     // Проверяем текущий скрипт на ошибки
     checkForErrors(scriptContent, language);
     
@@ -1363,14 +1444,17 @@ const ScriptsTab: React.FC = () => {
     // Проверяем наличие ошибок перед выполнением
     checkForErrors(scriptContent, language);
     
-    // Если есть ошибки, прерываем выполнение и переключаемся на вкладку проблем
+    // Выводим предупреждение, если есть ошибки, но всё равно запускаем скрипт
     if (errors.length > 0) {
-      setTimeout(() => {
-        setConsoleOutput(prev => prev + "\nОшибка: найдены синтаксические ошибки в скрипте. Исправьте их перед запуском.");
-        setIsRunning(false);
-        setActiveConsoleTab('problems'); // Переключаемся на вкладку проблем при ошибке
-      }, 500);
-      return;
+      const errorCount = errors.filter(err => err.severity === 'error').length;
+      const warningCount = errors.filter(err => err.severity === 'warning').length;
+      
+      let warningMessage = "\nПредупреждение: в скрипте обнаружены проблемы";
+      if (errorCount > 0) warningMessage += `, ошибок: ${errorCount}`;
+      if (warningCount > 0) warningMessage += `, предупреждений: ${warningCount}`;
+      warningMessage += ". Выполнение продолжается.\n";
+      
+      setConsoleOutput(prev => prev + warningMessage);
     }
     
     try {
@@ -1393,12 +1477,31 @@ const ScriptsTab: React.FC = () => {
   };
 
   // Обработчик сохранения скрипта
-  const handleSaveScript = () => {
+  const handleSaveScript = async () => {
     // Проверяем на ошибки перед сохранением
     checkForErrors(scriptContent, language);
     
-    // Здесь будет логика сохранения скрипта
-    alert(`Скрипт сохранен${errors.length > 0 ? ' (с ошибками)' : ''}`);
+    try {
+      // Вызываем Rust функцию для сохранения скрипта через диалог выбора файла
+      const result = await invoke<string>("save_script", { 
+        script: scriptContent,
+        language: language
+      });
+      
+      // Показываем успешное сообщение
+      setConsoleOutput(prev => `${prev}\n${result}`);
+      setActiveConsoleTab('output'); // Переключаемся на вкладку вывода
+      
+    } catch (error: unknown) {
+      console.error("Ошибка при сохранении скрипта:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Если это не отмена пользователем, показываем ошибку
+      if (errorMessage !== "Сохранение отменено пользователем") {
+        setConsoleOutput(prev => `${prev}\nОшибка при сохранении скрипта: ${errorMessage}`);
+        setActiveConsoleTab('output'); // Переключаемся на вкладку вывода
+      }
+    }
   };
 
   // Обработчик создания нового скрипта
@@ -1472,57 +1575,365 @@ const ScriptsTab: React.FC = () => {
     );
   };
 
-  // Рендер проблем
+  // Рендер проблем в консоли
   const renderProblems = () => {
-    // Если нет проблем, показываем сообщение
-    if (problems.length === 0) {
+    if (errors.length === 0) {
       return <div className="no-problems">Проблем не обнаружено</div>;
     }
 
     return (
       <div className="problems-list">
-        {problems.map((problem, index) => {
-          // Извлекаем номер строки из локации для перехода
-          const lineNumber = parseInt(problem.location.replace(/[^\d]/g, '')) || 1;
-          
-          return (
-            <div 
-              key={index} 
-              className={`problem-item problem-${problem.type}`}
-              onClick={() => {
-                // Переходим к соответствующей строке в редакторе
-                if (editorInstance) {
-                  editorInstance.revealLineInCenter(lineNumber);
-                  editorInstance.setPosition({
-                    lineNumber: lineNumber,
-                    column: 1
-                  });
-                  editorInstance.focus();
-                }
-              }}
-            >
-              <div className="problem-icon">
-                {problem.type === 'error' ? '⛔' : '⚠️'}
-              </div>
-              <div className="problem-location">{problem.location}</div>
-              <div className="problem-message">{problem.message}</div>
+        {errors.map((error, index) => (
+          <div 
+            key={index} 
+            className={`problem-item ${error.severity === 'error' ? 'problem-error' : 'problem-warning'}`}
+            onClick={() => {
+              if (editorInstance) {
+                editorInstance.focus();
+                editorInstance.revealLineInCenter(error.lineNumber);
+                editorInstance.setPosition({ lineNumber: error.lineNumber, column: 1 });
+              }
+            }}
+          >
+            <div className="problem-icon">
+              {error.severity === 'error' ? '❌' : '⚠️'}
             </div>
-          );
-        })}
+            <div className="problem-location">Строка {error.lineNumber}</div>
+            <div className="problem-message">{error.message}</div>
+          </div>
+        ))}
       </div>
     );
   };
 
-  // Рендер содержимого консоли в зависимости от активной вкладки
+  // Инициализация xterm терминала
+  const initializeTerminal = async () => {
+    // Предотвращаем повторную инициализацию, если терминал уже инициализирован
+    if (!terminalRef.current || terminalInitializedRef.current) return;
+    
+    console.log("Initializing xterm terminal...");
+    
+    try {
+      // Установка флага инициализации терминала
+      terminalInitializedRef.current = true;
+      
+      // Создаем новый экземпляр терминала
+      const term = new XTerm({
+        cursorBlink: true,
+        fontSize: 14,
+        fontFamily: 'Courier New, monospace',
+        fontWeight: 'normal',
+        lineHeight: 1.2,
+        letterSpacing: 0.5,
+        theme: {
+          background: '#1e1e1e',
+          foreground: '#d4d4d4',
+          cursor: '#45fce4',
+          selectionBackground: 'rgba(255,255,255,0.3)',
+        },
+        scrollback: 5000,
+        convertEol: true,
+        allowTransparency: true,
+        windowsMode: true,
+        allowProposedApi: true,
+        disableStdin: false,
+        macOptionIsMeta: true,
+        screenReaderMode: false,
+        scrollOnUserInput: true
+      });
+      
+      // Создаем и подключаем дополнения
+      const fit = new FitAddon();
+      const webLinks = new WebLinksAddon();
+      const unicode11 = new Unicode11Addon();
+      
+      term.loadAddon(fit);
+      term.loadAddon(webLinks);
+      term.loadAddon(unicode11);
+      
+      // Очищаем контейнер терминала
+      terminalRef.current.innerHTML = '';
+      
+      // Открываем терминал
+      term.open(terminalRef.current);
+      
+      // Подгоняем размер и устанавливаем фокус
+      setTimeout(() => {
+        fit.fit();
+        term.focus();
+        
+        // Добавляем класс для корректного отображения скролл-баров
+        if (terminalRef.current) {
+          // Получаем элемент viewport и добавляем ему класс для стилизации скролл-баров
+          const viewport = terminalRef.current.querySelector('.xterm-viewport');
+          if (viewport) {
+            viewport.classList.add('custom-scrollbar');
+            // Явно устанавливаем ширину viewport, чтобы скролл-бар не перекрывал содержимое
+            (viewport as HTMLElement).style.width = 'calc(100% - 10px)';
+          }
+          
+          // Обрабатываем экран терминала для правильного размещения
+          const screen = terminalRef.current.querySelector('.xterm-screen');
+          if (screen) {
+            (screen as HTMLElement).style.width = '100%';
+            (screen as HTMLElement).style.height = '100%';
+          }
+        }
+      }, 100);
+      
+      // Сохраняем терминал и FitAddon в состоянии
+      setXtermInstance(term);
+      setFitAddon(fit);
+      
+      // Выводим приветственное сообщение
+      term.write("\r\n\x1b[33mИнициализация терминала...\x1b[0m\r\n");
+      
+      // Запускаем процесс терминала
+      try {
+        // Запускаем процесс
+        const procId = await invoke<number>("start_process");
+        setTerminalId(procId);
+        
+        // Устанавливаем размер терминала
+        const { rows, cols } = term;
+        await invoke("resize_pty", { terminalId: procId, rows, cols });
+        
+        // Настраиваем обработчик ввода
+        term.onData(data => {
+          if (procId === null) return;
+          
+          // Отправляем ввод в процесс
+          invoke("send_input", { terminalId: procId, input: data })
+            .catch(err => {
+              console.error(`Failed to send input to terminal:`, err);
+              term.write(`\r\n\x1b[31mОшибка отправки ввода: ${err}\x1b[0m\r\n`);
+            });
+            
+          // Обрабатываем буфер команды для истории
+          if (data === '\r') { // Enter - завершение команды
+            // Если в буфере есть команда, добавляем её в историю
+            if (commandBufferRef.current.trim().length > 0) {
+              setTerminalHistory(prev => [...prev, {
+                command: commandBufferRef.current,
+                output: "Выполнение команды..."
+              }]);
+              // Сбрасываем буфер команды
+              commandBufferRef.current = '';
+            }
+          } else if (data === '\x7f' || data === '\b') { // Backspace
+            // Удаляем последний символ из буфера
+            if (commandBufferRef.current.length > 0) {
+              commandBufferRef.current = commandBufferRef.current.slice(0, -1);
+            }
+          } else if (data.length === 1 && data.charCodeAt(0) >= 32) { // Печатаемые символы
+            // Добавляем символ в буфер команды
+            commandBufferRef.current += data;
+          }
+        });
+        
+        // Настраиваем слушатель вывода терминала
+        const unlisten = await listen<[number, string]>("pty-output", (event) => {
+          if (!event.payload || !Array.isArray(event.payload) || event.payload.length !== 2) {
+            console.warn("Invalid terminal output format:", event.payload);
+            return;
+          }
+          
+          const [ptyId, output] = event.payload;
+          
+          // Проверяем, что вывод для нашего терминала
+          if (ptyId === procId && term) {
+            // Выводим данные в терминал
+            term.write(output);
+          }
+        });
+        
+        setUnlistener(() => unlisten);
+        
+        // Сообщение об успешном запуске
+        term.write(`\r\n\x1b[32mПроцесс терминала запущен успешно (ID: ${procId})\x1b[0m\r\n`);
+        term.focus();
+        
+      } catch (error) {
+        console.error("Failed to start terminal process:", error);
+        term.write(`\r\n\x1b[31mОшибка запуска процесса: ${error}\x1b[0m\r\n`);
+      }
+      
+      // Обработчик изменения размера окна
+      const handleResize = () => {
+        if (fit && term && terminalId !== null) {
+          fit.fit();
+          const { rows, cols } = term;
+          invoke("resize_pty", { terminalId, rows, cols }).catch(err => {
+            console.error("Failed to resize terminal:", err);
+          });
+        }
+      };
+      
+      // Подписываемся на изменение размера окна
+      window.addEventListener('resize', handleResize);
+      
+      // Отмечаем, что терминал инициализирован
+      terminalInitializedRef.current = true;
+      
+      // Функция очистки при размонтировании
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        if (unlistener) {
+          unlistener();
+        }
+        if (terminalId !== null) {
+          invoke("close_terminal_process", { terminalId }).catch(err => {
+            console.warn(`Failed to close terminal process:`, err);
+          });
+        }
+        if (term) {
+          term.dispose();
+        }
+      };
+      
+    } catch (error) {
+      console.error("Failed to initialize terminal:", error);
+      terminalInitializedRef.current = false; // Сбрасываем флаг в случае ошибки
+    }
+  };
+
+  // Инициализируем терминал при переключении на вкладку терминала
+  useEffect(() => {
+    if (activeConsoleTab === 'terminal' && !terminalInitializedRef.current && terminalRef.current) {
+      initializeTerminal();
+    }
+  }, [activeConsoleTab]);
+  
+  // Очистка ресурсов при размонтировании компонента
+  useEffect(() => {
+    return () => {
+      // Отписываемся от слушателя
+      if (unlistener) {
+        unlistener();
+      }
+      
+      // Закрываем процесс терминала
+      if (terminalId !== null) {
+        invoke("close_terminal_process", { terminalId }).catch(err => {
+          console.warn(`Failed to close terminal process:`, err);
+        });
+      }
+      
+      // Освобождаем ресурсы терминала
+      if (xtermInstance) {
+        xtermInstance.dispose();
+      }
+    };
+  }, []);
+
+  // Обработчик изменения размера терминала при переключении вкладок
+  useEffect(() => {
+    // Инициализируем терминал если он не инициализирован и активна вкладка терминала
+    const initIfNeeded = () => {
+      if (activeConsoleTab === 'terminal' && !terminalInitializedRef.current) {
+        setTimeout(() => {
+          initializeTerminal();
+        }, 50);
+      } else if (activeConsoleTab === 'terminal' && terminalInitializedRef.current && fitAddon && xtermInstance) {
+        // Если терминал уже инициализирован, просто подгоняем размер
+        setTimeout(() => {
+          try {
+            fitAddon.fit();
+            xtermInstance.focus();
+          } catch (e) {
+            console.error("Error resizing terminal:", e);
+          }
+        }, 50);
+      }
+    };
+
+    initIfNeeded();
+  }, [activeConsoleTab, fitAddon, xtermInstance]);
+
+  // Сброс терминала при смене скрипта
+  useEffect(() => {
+    if (activeScript) {
+      // Сбрасываем терминал при смене скрипта
+      const resetTerm = async () => {
+        // Если терминал был инициализирован, пересоздаем его
+        if (terminalInitializedRef.current && xtermInstance) {
+          // Сохраняем ссылку на текущий терминал
+          const oldInstance = xtermInstance;
+          
+          // Сбрасываем флаг и экземпляр перед пересозданием
+          terminalInitializedRef.current = false;
+          setXtermInstance(null);
+          
+          // Освобождаем ресурсы старого терминала
+          try {
+            oldInstance.dispose();
+          } catch (e) {
+            console.warn("Error disposing terminal:", e);
+          }
+          
+          // Очищаем контейнер
+          if (terminalRef.current) {
+            terminalRef.current.innerHTML = '';
+          }
+          
+          // Если активна вкладка терминала, пересоздаем его
+          if (activeConsoleTab === 'terminal') {
+            setTimeout(() => {
+              initializeTerminal();
+            }, 100);
+          }
+        }
+      };
+      
+      resetTerm();
+    }
+  }, [activeScript]);
+
+  // Очистка терминала при размонтировании компонента
+  useEffect(() => {
+    return () => {
+      // Отписываемся от слушателя вывода терминала
+      if (unlistener) {
+        unlistener();
+      }
+      
+      // Закрываем процесс терминала
+      if (terminalId !== null) {
+        invoke("close_process", { terminalId })
+          .catch(err => console.error("Failed to close terminal process:", err));
+      }
+      
+      // Освобождаем ресурсы терминала
+      if (xtermInstance) {
+        xtermInstance.dispose();
+      }
+    };
+  }, []);
+
+  // Рендер терминала в консоли
+  const renderTerminal = () => {
+    return (
+      <div 
+        className="terminal-container" 
+        ref={terminalRef}
+        key="terminal-container"
+      />
+    );
+  };
+
+  // Обновляем renderConsoleContent для включения терминала xterm
   const renderConsoleContent = () => {
-    switch (activeConsoleTab) {
-      case 'terminal':
-        return renderTerminalHistory();
-      case 'problems':
-        return renderProblems();
-      case 'output':
-      default:
-        return (
+    return (
+      <>
+        <div className={`tab-terminal ${activeConsoleTab === 'terminal' ? 'active-tab' : ''}`}>
+          {renderTerminal()}
+        </div>
+        
+        <div className={`tab-problems ${activeConsoleTab === 'problems' ? 'active-tab' : ''}`}>
+          {renderProblems()}
+        </div>
+        
+        <div className={`tab-output ${activeConsoleTab === 'output' ? 'active-tab' : ''}`}>
           <div className="code-output">
             {consoleOutput.split('\n').map((line, i) => (
               <div key={i} className={`code-line ${line.includes('Error') ? 'console-error' : ''}`}>
@@ -1530,8 +1941,9 @@ const ScriptsTab: React.FC = () => {
               </div>
             ))}
           </div>
-        );
-    }
+        </div>
+      </>
+    );
   };
 
   // Опции для Monaco Editor
@@ -1544,10 +1956,64 @@ const ScriptsTab: React.FC = () => {
       vertical: 'auto' as const,
       horizontal: 'auto' as const,
       verticalScrollbarSize: 12,
-      horizontalScrollbarSize: 12
+      horizontalScrollbarSize: 12,
+      alwaysConsumeMouseWheel: false,
+      scrollByPage: false,
+      useShadows: true
     },
     wordWrap: 'on' as const,
     renderValidationDecorations: 'on' as const
+  };
+
+  // Обработчик переключения вкладок
+  const handleConsoleTabChange = (tab: ConsoleTabType) => {
+    // Сохраняем предыдущую активную вкладку
+    const prevTab = activeConsoleTab;
+    
+    // Устанавливаем новую активную вкладку
+    setActiveConsoleTab(tab);
+    
+    // Находим элементы DOM для добавления/удаления классов
+    setTimeout(() => {
+      // Удаляем класс active-tab со всех элементов
+      const allTabs = document.querySelectorAll('.console-output > div');
+      allTabs.forEach(element => {
+        element.classList.remove('active-tab');
+      });
+      
+      // Добавляем класс active-tab активной вкладке
+      const activeElement = document.querySelector(`.console-output .tab-${tab}`);
+      if (activeElement) {
+        activeElement.classList.add('active-tab');
+      }
+      
+      // Дополнительно активируем терминал, если выбрана его вкладка
+      const terminalContainer = document.querySelector('.console-output .terminal-container');
+      if (terminalContainer) {
+        if (tab === 'terminal') {
+          terminalContainer.classList.add('active-tab');
+          
+          // Инициализируем терминал, если он не инициализирован
+          if (!terminalInitializedRef.current) {
+            setTimeout(() => {
+              initializeTerminal();
+            }, 50);
+          } else if (fitAddon && xtermInstance) {
+            // Если терминал уже инициализирован, просто подгоняем размер
+            setTimeout(() => {
+              try {
+                fitAddon.fit();
+                xtermInstance.focus();
+              } catch (e) {
+                console.error("Error resizing terminal:", e);
+              }
+            }, 50);
+          }
+        } else {
+          terminalContainer.classList.remove('active-tab');
+        }
+      }
+    }, 0);
   };
 
   return (
@@ -1555,11 +2021,9 @@ const ScriptsTab: React.FC = () => {
       <div className="scripts-main">
         <div className="scripts-left">
           <div className="script-editor-header">
-            <div className="editor-tab active">
-              <span>{activeTab}</span>
-              <span className="editor-tab-close">×</span>
+            <div className="editor-tab active" onClick={handleNewScript}>
+              <span>+ Новый скрипт</span>
             </div>
-            <div className="editor-tab-add" onClick={handleNewScript}>+</div>
             <LanguageSelector language={language} onChange={handleLanguageChange} />
             
             <div className="header-actions">
@@ -1576,18 +2040,13 @@ const ScriptsTab: React.FC = () => {
               >
                 💾 Сохранить
               </button>
-              <button 
-                className="btn btn-new"
-                onClick={handleNewScript}
-              >
-                + Новый скрипт
-              </button>
-              {errors.length > 0 && (
-                <div className="script-error-indicator">
-                  {errors.length} ошибок
-                </div>
-              )}
             </div>
+            
+            {errors.length > 0 && (
+              <div className="script-error-indicator">
+                {errors.length} ошибок
+              </div>
+            )}
           </div>
           
           <div className="script-editor-content">
@@ -1607,19 +2066,22 @@ const ScriptsTab: React.FC = () => {
               <div className="script-console-tabs">
                 <div 
                   className={`script-console-tab ${activeConsoleTab === 'output' ? 'active' : ''}`}
-                  onClick={() => setActiveConsoleTab('output')}
+                  onClick={() => handleConsoleTabChange('output')}
+                  data-tab="output"
                 >
                   Вывод
                 </div>
                 <div 
                   className={`script-console-tab ${activeConsoleTab === 'terminal' ? 'active' : ''}`}
-                  onClick={() => setActiveConsoleTab('terminal')}
+                  onClick={() => handleConsoleTabChange('terminal')}
+                  data-tab="terminal"
                 >
                   Терминал
                 </div>
                 <div 
                   className={`script-console-tab ${activeConsoleTab === 'problems' ? 'active' : ''}`}
-                  onClick={() => setActiveConsoleTab('problems')}
+                  onClick={() => handleConsoleTabChange('problems')}
+                  data-tab="problems"
                 >
                   Проблемы
                   {problems.length > 0 && <span className="problem-badge">{problems.length}</span>}

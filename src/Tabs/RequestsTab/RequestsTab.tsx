@@ -325,7 +325,7 @@ export const RequestsTab: React.FC = () => {
       setIsLoading(false);
     }
   };
-
+  
   // Обработчик отправки запроса из панели протокола
   const handleSendRequest = (request?: string) => {
     if (activeProtocol === 'http') {
@@ -341,7 +341,7 @@ export const RequestsTab: React.FC = () => {
     const responseText = JSON.stringify(responseData);
     const responseSize = new Blob([responseText]).size;
     
-    setResponse({
+      setResponse({
       status: 200, // Предполагаем успешный ответ, так как ошибки GraphQL приходят с кодом 200
       statusText: 'OK',
       headers: { 'content-type': 'application/json' },
@@ -664,22 +664,22 @@ export const RequestsTab: React.FC = () => {
         return null;
     }
   };
-
+  
   return (
     <div className="requests-tab">
-      <div className="protocol-selector">
-        <button
+        <div className="protocol-selector">
+          <button 
           className={`protocol-btn ${activeProtocol === 'http' ? 'active' : ''}`}
           onClick={() => setActiveProtocol('http')}
-        >
-          HTTP
-        </button>
-        <button
+          >
+            HTTP
+          </button>
+          <button 
           className={`protocol-btn ${activeProtocol === 'graphql' ? 'active' : ''}`}
           onClick={() => setActiveProtocol('graphql')}
-        >
-          GraphQL
-        </button>
+          >
+            GraphQL
+          </button>
         <button
           className={`protocol-btn ${activeProtocol === 'websocket' ? 'active' : ''}`}
           onClick={() => setActiveProtocol('websocket')}
@@ -698,7 +698,7 @@ export const RequestsTab: React.FC = () => {
         >
           MQTT
         </button>
-      </div>
+        </div>
 
       {/* Панель протокола */}
       <div className="protocol-panel">
@@ -766,8 +766,8 @@ export const RequestsTab: React.FC = () => {
             >
               Информация
             </button>
-            
-            {response && (
+      
+      {response && (
               <div className="status-info">
                 <span className={`status-code ${response.status < 400 ? 'success' : 'error'}`}>
                   {response.status}
