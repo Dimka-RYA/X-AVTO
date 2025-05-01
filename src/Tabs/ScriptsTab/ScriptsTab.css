@@ -11,45 +11,48 @@ body, html {
   flex-direction: column;
   height: 100%;
   width: 100%;
-  background-color: #1e1e1e;
+  background-color: transparent;
   color: white;
   overflow: hidden; /* Запрещаем скролл основного контейнера */
-
   box-sizing: border-box; /* Включаем padding в размеры элемента */
 }
 
 .scripts-main {
   display: flex;
   flex-direction: row;
-  height: calc(100% - 16px); /* Компенсируем padding */
+  height: calc(100% - 10px);
   width: 100%;
-  gap: 12px;
-  overflow: hidden; /* Запрещаем скролл */
+  gap: 10px;
+  overflow: hidden;
 }
 
 .scripts-left {
   flex: 1;
-  height: 100%;
+  height: calc(100% - 10px);
   display: flex;
   flex-direction: column;
   overflow: hidden; /* Запрещаем скролл контейнера */
-  border-right: none;
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background-color: transparent;
+  box-shadow: none;
 }
 
 .script-editor-header {
   display: flex;
   align-items: center;
-  background-color: #252525;
+  background-color: transparent;
   padding: 6px 8px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid #444;
+  border-left: 1px solid #444;
+  border-right: 1px solid #444;
+  border-top: 1px solid #444;
   border-radius: 8px 8px 0 0;
   flex-wrap: nowrap;
-  height: 40px;
+  height: 32px; /* Уменьшаем высоту */
   overflow: visible;
-  justify-content: flex-start; /* Прижимаем всё к левому краю */
-  position: relative; /* Для абсолютного позиционирования дочерних элементов */
+  justify-content: flex-start;
+  position: relative;
+  margin: 0 1px;
 }
 
 /* Скрываем текст в вкладке, оставляем только крестик */
@@ -59,26 +62,30 @@ body, html {
 
 /* Кнопка нового скрипта (первый элемент) */
 .editor-tab {
-  padding: 4px 10px;
-  margin-right: 4px;
+  padding: 3px 8px;
+  margin-right: 6px;
   display: flex;
   align-items: center;
   border-radius: 4px;
   cursor: pointer;
-  background-color: #3a3d41;
+  background-color: transparent;
+  border: 1px solid #444;
   white-space: nowrap;
-  font-size: 13px;
-  height: 28px;
+  font-size: 12px;
+  height: 24px;
   flex-shrink: 0;
-  min-width: 120px;
+  min-width: 90px;
+  max-width: 90px;
   justify-content: center;
   color: white;
   order: 1;
   z-index: 5;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .editor-tab:hover {
-  background-color: #45494e;
+  background-color: rgba(255, 255, 255, 0.05);
 }
 
 /* Прячем плюсик, так как будем использовать вкладку как кнопку Новый скрипт */
@@ -90,15 +97,19 @@ body, html {
   flex: 1;
   overflow: hidden;
   position: relative;
-  background-color: #1e1e1e;
+  background-color: transparent;
   border-radius: 0 0 8px 8px;
+  height: calc(100% - 36px - 160px);
+  border-left: 1px solid #444;
+  border-right: 1px solid #444;
+  margin: 0 1px;
 }
 
 .script-editor-area {
   width: 100%;
   height: 100%;
   padding: 8px;
-  background-color: #1e1e1e;
+  background-color: transparent;
   color: #d4d4d4;
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 14px;
@@ -109,21 +120,26 @@ body, html {
 }
 
 .script-console {
-  height: 230px;
-  min-height: 230px; /* Обеспечиваем минимальную высоту */
-  max-height: 230px; /* Ограничиваем максимальную высоту */
-  background-color: #1e1e1e;
+  height: 160px;
+  min-height: 160px;
+  max-height: 160px;
+  background-color: transparent;
   color: #d4d4d4;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid #333;
+  border-top: 1px solid #444;
+  border-left: 1px solid #444;
+  border-right: 1px solid #444;
+  border-bottom: 2px solid #888;
+  margin: 0 1px 4px 1px;
+  border-radius: 0 0 8px 8px;
 }
 
 .script-console-header {
-  padding: 4px 8px;
-  background-color: #252526;
-  border-bottom: 1px solid #333;
+  padding: 2px 6px;
+  background-color: transparent;
+  border-bottom: 1px solid #444;
 }
 
 .script-console-tabs {
@@ -132,23 +148,24 @@ body, html {
 }
 
 .script-console-tab {
-  padding: 3px 10px;
+  padding: 2px 6px;
   cursor: pointer;
   position: relative;
-  font-size: 12px;
+  font-size: 11px;
   border: 1px solid transparent;
   border-radius: 3px 3px 0 0;
   transition: background-color 0.2s;
+  margin-right: 2px;
 }
 
 .script-console-tab:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.05);
 }
 
 .script-console-tab.active {
-  background-color: #1e1e1e;
-  border-color: #333;
-  border-bottom-color: #1e1e1e;
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: #444;
+  border-bottom-color: transparent;
 }
 
 .problem-badge {
@@ -162,22 +179,23 @@ body, html {
 
 .console-output {
   position: relative;
-  height: calc(100% - 30px); /* Вычитаем высоту заголовка */
-  padding: 0; /* Убираем padding, чтобы не было проблем с размещением */
+  height: calc(100% - 24px); /* Уменьшаем высоту вычитания */
+  padding: 0;
   font-family: 'Courier New', monospace;
-  font-size: 13px;
+  font-size: 12px;
   white-space: pre-wrap;
-  overflow: hidden; /* Запрещаем скролл на контейнере */
+  overflow: hidden;
 }
 
 /* Контейнеры для разных типов вывода */
 .code-output, .problems-list, .terminal-container {
   width: 100%;
   height: 100%;
-  padding: 8px;
+  padding: 6px;
   box-sizing: border-box;
   overflow-y: auto;
   overflow-x: hidden;
+  background-color: transparent;
 }
 
 /* Исправление для терминала, чтобы он был всегда виден */
@@ -368,19 +386,20 @@ body, html {
 .problems-list {
   display: flex;
   flex-direction: column;
-  overflow-y: auto; /* Добавляем вертикальный скролл */
-  max-height: 100%; /* Ограничиваем высоту, чтобы появился скролл */
-  height: 100%; /* Заполняем всю доступную высоту */
+  overflow-y: auto;
+  max-height: 100%;
+  height: 100%;
+  padding: 4px;
 }
 
 .problem-item {
   display: flex;
   align-items: center;
-  padding: 6px 8px;
+  padding: 4px 6px;
   cursor: pointer;
-  gap: 8px;
+  gap: 6px;
   border-bottom: 1px solid #333;
-  min-height: 20px; /* Минимальная высота для элемента */
+  min-height: 18px;
 }
 
 .problem-item:hover {
@@ -411,7 +430,7 @@ body, html {
 
 .problem-message {
   flex: 1;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .no-problems {
@@ -425,27 +444,45 @@ body, html {
 
 .scripts-sidebar {
   width: 230px;
-  overflow-y: auto; /* Разрешаем вертикальный скролл */
-  overflow-x: hidden; /* Запрещаем горизонтальный скролл */
-  background-color: #252526;
+  overflow-y: auto;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+  background-color: transparent;
+  border: 1px solid #444;
   border-radius: 8px;
-  height: 100%;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  height: calc(100% - 10px);
+  box-shadow: none;
+}
+
+/* Скрываем скроллбар в WebKit (Chrome, Safari) */
+.scripts-sidebar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+  background: transparent;
+}
+
+.scripts-sidebar:hover {
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .script-list-item {
   padding: 8px 12px;
   cursor: pointer;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid #444;
   transition: background-color 0.2s;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-height: 60px;
+  min-height: 50px;
+  background-color: transparent;
+  overflow: hidden;
 }
 
 .script-list-item:hover {
-  background-color: #2a2d2e;
+  background-color: rgba(255, 255, 255, 0.05);
 }
 
 .script-list-item:first-child {
@@ -458,12 +495,12 @@ body, html {
 }
 
 .script-list-item.active {
-  background-color: #37373d;
-  border-left: 3px solid #569cd6;
+  background-color: rgba(255, 255, 255, 0.08);
+  border-left: none;
 }
 
 .script-list-item-timestamp {
-  font-size: 11px;
+  font-size: 10px;
   color: #888;
 }
 
@@ -471,34 +508,52 @@ body, html {
 .language-selector {
   display: flex;
   align-items: center;
-  margin-left: 10px;
-  margin-right: 70px;
+  margin-left: 4px;
   flex-shrink: 0;
   order: 2;
-  min-width: 110px; /* Добавляем минимальную ширину */
+  min-width: 80px; /* Увеличиваем с 70px */
+  max-width: 90px; /* Увеличиваем с 80px */
   z-index: 6;
+  position: relative;
+  top: 0;
 }
 
 /* Улучшаем селектор языка */
 .language-select {
-  background-color: #333;
+  background-color: #1e1e1e;
   color: white;
-  border: none;
+  border: 1px solid #444;
   border-radius: 4px;
-  padding: 4px 8px;
-  font-size: 13px;
+  padding: 3px 6px;
+  font-size: 12px;
   outline: none;
   cursor: pointer;
-  width: 100%; /* Используем всю доступную ширину */
-  min-width: 90px; /* Минимальная ширина */
+  width: 100%;
+  min-width: 80px; /* Увеличиваем с 70px */
+  max-width: 90px;
+  height: 28px; /* Увеличиваем с 26px */
 }
 
 .language-select:hover {
-  background-color: #444;
+  background-color: #2d2d2d;
 }
 
-.language-select:focus {
-  box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.5);
+/* Добавляем стили для выпадающего списка */
+.language-select option {
+  background-color: #1e1e1e;
+  color: white;
+  padding: 8px;
+}
+
+.language-select optgroup {
+  background-color: #1e1e1e;
+  color: #888;
+}
+
+.language-select option:hover,
+.language-select option:focus,
+.language-select option:active {
+  background-color: #2d2d2d;
 }
 
 .script-list-item-info {
@@ -514,14 +569,16 @@ body, html {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12px;
 }
 
 .script-language-badge {
-  font-size: 11px;
-  background-color: #333;
+  font-size: 10px;
+  background-color: transparent;
+  border: 1px solid #444;
   color: #ccc;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 1px 5px;
+  border-radius: 3px;
   align-self: flex-start;
 }
 
@@ -651,9 +708,9 @@ body, html {
 
 /* Улучшение видимости терминала при переключении скриптов */
 .script-console-tab.active {
-  background-color: #1e1e1e;
-  border-color: #333;
-  border-bottom-color: #1e1e1e;
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: #444;
+  border-bottom-color: transparent;
   font-weight: 500;
 }
 
@@ -687,11 +744,12 @@ body, html {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 10px; /* Увеличиваем расстояние между кнопками */
-  flex-shrink: 0;
-  order: 3;
-  margin-left: 20px; /* Увеличиваем отступ слева */
-  z-index: 5;
+  position: absolute;
+  right: auto;
+  left: 320px; /* Увеличиваем отступ ещё на 40px (было 280px) */
+  top: 4px;
+  gap: 10px; /* Уменьшаем расстояние между кнопками */
+  z-index: 10;
 }
 
 /* Индикатор ошибок (прижат к правому краю) */
@@ -740,4 +798,71 @@ body, html {
 
 .btn-secondary:hover, .btn-new:hover {
   background-color: #45494e;
+}
+
+/* Improve button styling for Lucide icons */
+.header-actions .btn {
+  height: 26px;
+  font-size: 12px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-actions .btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Фиксированная ширина для кнопки Запустить */
+.header-actions .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  border: 1px solid #1C6B36;
+  color: #4caf50;
+  padding: 4px;
+  padding-right: 8px;
+  min-width: 34px; /* Увеличиваем размер */
+  width: auto;
+  height: 28px; /* Увеличиваем высоту */
+}
+
+/* Фиксированная ширина для кнопки Сохранить */
+.header-actions .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  border: 1px solid #444;
+  color: #ccc;
+  padding: 4px;
+  padding-right: 8px;
+  min-width: 34px; /* Увеличиваем размер */
+  width: auto;
+  height: 28px; /* Увеличиваем высоту */
+}
+
+/* Фиксированный размер для иконок */
+.header-actions .btn svg {
+  width: 18px; /* Увеличиваем размер иконок */
+  height: 18px; /* Увеличиваем размер иконок */
+  min-width: 18px; /* Увеличиваем размер иконок */
+  min-height: 18px; /* Увеличиваем размер иконок */
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+
+.header-actions .btn-primary:hover:not(:disabled) {
+  background-color: rgba(76, 175, 80, 0.1);
+}
+
+.header-actions .btn-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.05);
 } 

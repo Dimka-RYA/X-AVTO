@@ -56,10 +56,10 @@ export const Terminal = () => {
   // Базовое состояние
   const [activeTab, setActiveTab] = useState<number>(1);
   const [activeView, setActiveView] = useState<"terminal" | "issues">("terminal");
-  const [tabs, setTabs] = useState<Array<TerminalTabData>>([
+  const [tabs, setTabs] = useState<TerminalTabData[]>([
     { 
       id: 1, 
-      name: 'Консоль 1', 
+      name: 'Terminal', 
       terminal: null, 
       fitAddon: null, 
       history: [], 
@@ -90,6 +90,14 @@ export const Terminal = () => {
   const isProcessStartingRef = useRef<Set<number>>(new Set());
   const commandBufferRef = useRef<Map<number, string>>(new Map());
   const outputTrackerRef = useRef<Map<number, { lastOutput: string, lastTime: number }>>(new Map());
+  
+  // Add tooltip state
+  const [tooltip, setTooltip] = useState<{ text: string, visible: boolean, x: number, y: number }>({
+    text: '',
+    visible: false,
+    x: 0,
+    y: 0
+  });
 
   // Функции для работы с файлами проблем
   const toggleFileExpand = (filePath: string) => {
@@ -1716,8 +1724,42 @@ export const Terminal = () => {
     }
   };
 
+  // Tooltip handlers
+  const handleShowTooltip = (e: React.MouseEvent, text: string) => {
+    // Get the button's position
+    const rect = e.currentTarget.getBoundingClientRect();
+    
+    // Calculate position - centered below the button
+    const x = rect.left + (rect.width / 2);
+    
+    // Position below the button
+    const y = rect.bottom;
+    
+    setTooltip({
+      text,
+      visible: true,
+      x,
+      y
+    });
+  };
+
+  const handleHideTooltip = () => {
+    setTooltip(prev => ({ ...prev, visible: false }));
+  };
+
     return (
       <div className="terminal-container">
+      {/* Tooltip element for buttons - with absolute positioning */}
+      <div 
+        className={`btn-tooltip ${tooltip.visible ? 'visible' : ''}`} 
+        style={{ 
+          left: `${tooltip.x}px`, 
+          top: `${tooltip.y}px`
+        }}
+      >
+        {tooltip.text}
+      </div>
+      
       {/* Ошибка терминала */}
       {error && (
         <div className="terminal-error">
@@ -1758,9 +1800,10 @@ export const Terminal = () => {
             
             <div className="terminal-toolbar">
               <button 
-                className="tab-clear-btn" 
+                className="tab-clear-btn has-tooltip" 
                 onClick={handleClearTerminal}
-                title="Очистить терминал"
+                onMouseEnter={(e) => handleShowTooltip(e, "Очистить терминал")}
+                onMouseLeave={handleHideTooltip}
               >
                 <AiOutlineClear size={16} />
               </button>
@@ -1799,9 +1842,10 @@ export const Terminal = () => {
           <div className="history-header">
             История команд
             <button 
-              className="history-clear-btn" 
+              className="history-clear-btn has-tooltip" 
               onClick={handleClearHistory}
-              title="Очистить историю"
+              onMouseEnter={(e) => handleShowTooltip(e, "Очистить историю")}
+              onMouseLeave={handleHideTooltip}
             >
               <AiOutlineClear size={14} />
             </button>
@@ -1831,9 +1875,10 @@ export const Terminal = () => {
                       Подробнее
                     </button>
                     <button 
-                      className="command-delete-btn"
+                      className="command-delete-btn has-tooltip"
                       onClick={() => handleDeleteCommand(cmd.id)}
-                      title="Удалить из истории"
+                      onMouseEnter={(e) => handleShowTooltip(e, "Удалить из истории")}
+                      onMouseLeave={handleHideTooltip}
                     >
                       ×
                     </button>

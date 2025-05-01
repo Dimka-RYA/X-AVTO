@@ -1,5 +1,3 @@
 import StatusTab from './StatusTab';
 
-export const State = () => {
-  return <StatusTab />;
-};
+export { StatusTab as State };

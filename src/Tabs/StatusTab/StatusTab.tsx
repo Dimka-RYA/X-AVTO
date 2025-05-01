@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import './StatusTab.css';
+import ResourceCard from './components/ResourceCard';
+import DetailPanel from './components/DetailPanel';
 
 // Обновленные интерфейсы для совместимости с бэкендом и макетом
 interface SystemInfo {
@@ -99,7 +101,7 @@ interface CircularIndicatorProps {
   label?: string;
 }
 
-const CircularIndicator: React.FC<CircularIndicatorProps> = ({
+export const CircularIndicator: React.FC<CircularIndicatorProps> = ({
   value,
   maxValue = 100,
   radius = 35,
@@ -163,12 +165,75 @@ const getColorForTemperature = (temperature: number): string => {
   return '#f44336'; // красный
 };
 
+// Тип выбранного ресурса
+type ResourceType = 'cpu' | 'memory' | 'gpu' | 'disk' | 'network';
+
 // Основной компонент StatusTab
 const StatusTab: React.FC = () => {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  
+  // State для хранения истории использования ресурсов
+  const [cpuHistory, setCpuHistory] = useState<number[]>([]);
+  const [memoryHistory, setMemoryHistory] = useState<number[]>([]);
+  const [gpuHistory, setGpuHistory] = useState<number[]>([]);
+  const [diskHistory, setDiskHistory] = useState<number[]>([]);
+  const [networkHistory, setNetworkHistory] = useState<number[]>([]);
+  
+  // Выбранная карточка для детального отображения
+  const [selectedResource, setSelectedResource] = useState<ResourceType>('cpu');
+  
+  // Максимальное количество точек в истории
+  const MAX_HISTORY_POINTS = 60;
+
+  // Обновляем историю использования при получении новых данных
+  useEffect(() => {
+    if (!systemInfo) return;
+    
+    const updateHistory = () => {
+      // Обновляем CPU историю
+      setCpuHistory(prev => {
+        const newHistory = [...prev, systemInfo.cpu.usage];
+        return newHistory.length > MAX_HISTORY_POINTS ? newHistory.slice(-MAX_HISTORY_POINTS) : newHistory;
+      });
+      
+      // Обновляем Memory историю
+      setMemoryHistory(prev => {
+        const newHistory = [...prev, systemInfo.memory.usage_percentage];
+        return newHistory.length > MAX_HISTORY_POINTS ? newHistory.slice(-MAX_HISTORY_POINTS) : newHistory;
+      });
+      
+      // Обновляем GPU историю, если есть данные
+      if (systemInfo.gpu) {
+        setGpuHistory(prev => {
+          const newHistory = [...prev, systemInfo.gpu?.usage || 0];
+          return newHistory.length > MAX_HISTORY_POINTS ? newHistory.slice(-MAX_HISTORY_POINTS) : newHistory;
+        });
+      }
+      
+      // Обновляем Disk историю (берем среднее значение использования всех дисков)
+      if (systemInfo.disks && systemInfo.disks.length > 0) {
+        const avgDiskUsage = systemInfo.disks.reduce((sum, disk) => sum + disk.usage_percent, 0) / systemInfo.disks.length;
+        setDiskHistory(prev => {
+          const newHistory = [...prev, avgDiskUsage];
+          return newHistory.length > MAX_HISTORY_POINTS ? newHistory.slice(-MAX_HISTORY_POINTS) : newHistory;
+        });
+      }
+      
+      // Обновляем Network историю, если есть данные
+      if (systemInfo.network) {
+        setNetworkHistory(prev => {
+          const newHistory = [...prev, systemInfo.network?.usage || 0];
+          return newHistory.length > MAX_HISTORY_POINTS ? newHistory.slice(-MAX_HISTORY_POINTS) : newHistory;
+        });
+      }
+    };
+    
+    updateHistory();
+    setLastUpdate(new Date());
+  }, [systemInfo]);
 
   useEffect(() => {
     let unlistenSystemInfo: (() => void) | null = null;
@@ -217,6 +282,126 @@ const StatusTab: React.FC = () => {
     };
   }, []);
 
+  // Генерируем детальную информацию для выбранного ресурса
+  const getResourceDetails = () => {
+    if (!systemInfo) return null;
+    
+    switch (selectedResource) {
+      case 'cpu':
+        return {
+          title: 'Процессор',
+          subtitle: systemInfo.cpu.model_name || systemInfo.cpu.name,
+          graphData: cpuHistory,
+          graphColor: '#1E90FF', // DodgerBlue
+          currentValue: systemInfo.cpu.usage,
+          unit: '%',
+          details: [
+            { label: 'Архитектура:', value: systemInfo.cpu.architecture || 'Нет данных' },
+            { label: 'Ядра:', value: `${systemInfo.cpu.cores || 'Нет данных'}` },
+            { label: 'Потоки:', value: `${systemInfo.cpu.threads || 'Нет данных'}` },
+            { label: 'Текущая частота:', value: typeof systemInfo.cpu.frequency === 'number' ? `${systemInfo.cpu.frequency.toFixed(2)} ГГц` : 'Нет данных' },
+            { label: 'Базовая частота:', value: typeof systemInfo.cpu.base_frequency === 'number' ? `${systemInfo.cpu.base_frequency.toFixed(2)} ГГц` : 'Нет данных' },
+            { label: 'Размер кэша:', value: systemInfo.cpu.cache_size || 'Нет данных' },
+            { label: 'Производитель:', value: systemInfo.cpu.vendor_id || 'Нет данных' },
+            { label: 'Процессы:', value: `${systemInfo.cpu.processes || 'Нет данных'}` },
+            { label: 'Системные потоки:', value: `${systemInfo.cpu.system_threads || 'Нет данных'}` },
+            { label: 'Дескрипторы:', value: `${systemInfo.cpu.handles || 'Нет данных'}` }
+          ]
+        };
+        
+      case 'memory':
+        return {
+          title: 'Оперативная память',
+          subtitle: systemInfo.memory.memory_name ? `${systemInfo.memory.memory_name} ${systemInfo.memory.memory_part_number || ''}` : 'Оперативная память',
+          graphData: memoryHistory,
+          graphColor: '#9370DB', // MediumPurple
+          currentValue: systemInfo.memory.usage_percentage,
+          unit: '%',
+          details: [
+            { label: 'Тип памяти:', value: systemInfo.memory.type_ram || 'Нет данных' },
+            { label: 'Производитель:', value: systemInfo.memory.memory_name || 'Нет данных' },
+            { label: 'Скорость:', value: systemInfo.memory.memory_speed || 'Нет данных' },
+            { label: 'Общий объем:', value: systemInfo.memory.total ? formatBytes(systemInfo.memory.total) : 'Нет данных' },
+            { label: 'Использовано:', value: systemInfo.memory.used ? formatBytes(systemInfo.memory.used) : 'Нет данных' },
+            { label: 'Доступно:', value: systemInfo.memory.available ? formatBytes(systemInfo.memory.available) : 'Нет данных' },
+            { label: 'Виртуальная память:', value: systemInfo.memory.swap_total ? formatBytes(systemInfo.memory.swap_total) : 'Нет данных' },
+            { label: 'Использование SWAP:', value: systemInfo.memory.swap_used ? `${formatBytes(systemInfo.memory.swap_used)} (${systemInfo.memory.swap_usage_percentage.toFixed(1)}%)` : 'Нет данных' },
+            { label: 'Слоты памяти:', value: systemInfo.memory.slots_total ? `${systemInfo.memory.slots_used} из ${systemInfo.memory.slots_total}` : 'Нет данных' }
+          ]
+        };
+        
+      case 'gpu':
+        if (!systemInfo.gpu) return null;
+        return {
+          title: 'Видеокарта',
+          subtitle: systemInfo.gpu.name,
+          graphData: gpuHistory,
+          graphColor: '#32CD32', // LimeGreen
+          currentValue: systemInfo.gpu.usage,
+          unit: '%',
+          details: [
+            { label: 'Тип памяти:', value: systemInfo.gpu.memory_type || 'Нет данных' },
+            { label: 'Объем памяти:', value: systemInfo.gpu.memory_total ? formatBytes(systemInfo.gpu.memory_total) : 'Нет данных' },
+            { label: 'Использование памяти:', value: systemInfo.gpu.memory_used && systemInfo.gpu.memory_total ? 
+              `${formatBytes(systemInfo.gpu.memory_used)} / ${formatBytes(systemInfo.gpu.memory_total)}` : 'Нет данных' },
+            { label: 'Ядра CUDA:', value: systemInfo.gpu.cores ? `${systemInfo.gpu.cores}` : 'Нет данных' },
+            { label: 'Частота:', value: systemInfo.gpu.frequency ? `${systemInfo.gpu.frequency.toFixed(2)} ГГц` : 'Нет данных' },
+            { label: 'Температура:', value: systemInfo.gpu.temperature ? `${systemInfo.gpu.temperature.toFixed(1)}°C` : 'Нет данных' },
+            { label: 'Драйвер:', value: systemInfo.gpu.driver_version || 'Нет данных' },
+            { label: 'Вентилятор:', value: systemInfo.gpu.fan_speed ? `${systemInfo.gpu.fan_speed.toFixed(0)}%` : 'Нет данных' },
+            { label: 'Энергопотребление:', value: systemInfo.gpu.power_draw && systemInfo.gpu.power_limit ? 
+              `${systemInfo.gpu.power_draw.toFixed(1)} / ${systemInfo.gpu.power_limit.toFixed(1)} Вт` : 'Нет данных' }
+          ]
+        };
+        
+      case 'disk':
+        if (!systemInfo.disks || systemInfo.disks.length === 0) return null;
+        // Для простоты берем первый диск, в продакшн версии можно добавить возможность выбора диска
+        const primaryDisk = systemInfo.disks[0];
+        return {
+          title: 'Диски',
+          subtitle: `${primaryDisk.name} (${formatBytes(primaryDisk.total_space)})`,
+          graphData: diskHistory,
+          graphColor: '#FFA500', // Orange
+          currentValue: primaryDisk.usage_percent,
+          unit: '%',
+          details: [
+            { label: 'Всего дисков:', value: `${systemInfo.disks.length}` },
+            ...systemInfo.disks.map((disk, index) => ({
+              label: `${disk.name}:`,
+              value: `${formatBytes(disk.available_space)} свободно из ${formatBytes(disk.total_space)}`
+            })),
+            { label: 'Файловая система:', value: primaryDisk.file_system },
+            { label: 'Скорость чтения:', value: `${formatBytes(primaryDisk.read_speed)}/с` },
+            { label: 'Скорость записи:', value: `${formatBytes(primaryDisk.write_speed)}/с` }
+          ]
+        };
+        
+      case 'network':
+        if (!systemInfo.network) return null;
+        return {
+          title: 'Сеть',
+          subtitle: systemInfo.network.adapter_name,
+          graphData: networkHistory,
+          graphColor: '#20B2AA', // LightSeaGreen
+          currentValue: systemInfo.network.usage,
+          unit: '%',
+          details: [
+            { label: 'IP-адрес:', value: systemInfo.network.ip_address || 'Нет данных' },
+            { label: 'MAC-адрес:', value: systemInfo.network.mac_address || 'Нет данных' },
+            { label: 'Тип подключения:', value: systemInfo.network.connection_type || 'Нет данных' },
+            { label: 'Скорость загрузки:', value: systemInfo.network.download_speed ? `${formatBytes(systemInfo.network.download_speed)}/с` : 'Нет данных' },
+            { label: 'Скорость выгрузки:', value: systemInfo.network.upload_speed ? `${formatBytes(systemInfo.network.upload_speed)}/с` : 'Нет данных' },
+            { label: 'Всего получено:', value: systemInfo.network.total_received ? formatBytes(systemInfo.network.total_received) : 'Нет данных' },
+            { label: 'Всего отправлено:', value: systemInfo.network.total_sent ? formatBytes(systemInfo.network.total_sent) : 'Нет данных' }
+          ]
+        };
+        
+      default:
+        return null;
+    }
+  };
+
   // Отображение состояния загрузки
   if (loading) {
     return (
@@ -244,392 +429,117 @@ const StatusTab: React.FC = () => {
     );
   }
 
+  // Получаем детальную информацию для выбранного ресурса
+  const detailsData = getResourceDetails();
+
   return (
     <div className="status-container">
-      {lastUpdate && (
-        <div className="last-update">
-          Обновлено: {lastUpdate.toLocaleTimeString()}
-        </div>
-      )}
-
-      <div className="status-grid">
-        {/* Левая колонка */}
-        <div className="status-column">
-          {/* Процессор */}
-          {systemInfo.cpu ? (
-            <div className="system-section">
-              <h3 className="section-header">Процессор</h3>
-              <div className="processor-model">{systemInfo.cpu.model_name || systemInfo.cpu.name || 'Неизвестная модель'}</div>
-              
-              <div className="info-block">
-                <div className="info-text">
-                  <div className="info-row">
-                    <span>Архитектура:</span>
-                    <span>{systemInfo.cpu.architecture || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Кол-во ядер:</span>
-                    <span>{systemInfo.cpu.cores || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Кол-во потоков:</span>
-                    <span>{systemInfo.cpu.threads || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Текущая частота:</span>
-                    <span>{typeof systemInfo.cpu.frequency === 'number' ? `${systemInfo.cpu.frequency.toFixed(2)} ГГц` : 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Базовая частота:</span>
-                    <span>{typeof systemInfo.cpu.base_frequency === 'number' ? `${systemInfo.cpu.base_frequency.toFixed(2)} ГГц` : 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Размер кэша:</span>
-                    <span>{systemInfo.cpu.cache_size || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Производитель:</span>
-                    <span>{systemInfo.cpu.vendor_id || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Процессы:</span>
-                    <span>{systemInfo.cpu.processes || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Потоки:</span>
-                    <span>{systemInfo.cpu.system_threads || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Дескрипторы:</span>
-                    <span>{systemInfo.cpu.handles || 'Нет данных'}</span>
-                  </div>
-                </div>
-                
-                <div className="gauges-container">
-                  <div className="gauge-with-label">
-                    <CircularIndicator
-                      value={systemInfo.cpu.usage || 0}
-                      color={getColorForPercentage(systemInfo.cpu.usage || 0)}
-                      text={`${(systemInfo.cpu.usage || 0).toFixed(1)}%`}
-                      label="Нагруженность"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="system-section">
-              <h3 className="section-header">Процессор</h3>
-              <div className="no-data-message">Нет данных о процессоре</div>
-            </div>
+      <div className="win11-container">
+        {/* Вертикальное меню с карточками ресурсов (слева) */}
+        <div className="resources-panel">
+          {/* CPU карточка */}
+          <ResourceCard
+            title="Процессор"
+            usage={systemInfo.cpu.usage}
+            graphData={cpuHistory}
+            graphColor="#1E90FF"
+            details={[
+              { label: 'Модель', value: systemInfo.cpu.model_name || 'Неизвестно' },
+              { label: 'Ядра/Потоки', value: `${systemInfo.cpu.cores} / ${systemInfo.cpu.threads}` },
+              { label: 'Частота', value: `${systemInfo.cpu.frequency.toFixed(2)} ГГц` }
+            ]}
+            selected={selectedResource === 'cpu'}
+            onClick={() => setSelectedResource('cpu')}
+          />
+          
+          {/* Memory карточка */}
+          <ResourceCard
+            title="Память"
+            usage={systemInfo.memory.usage_percentage}
+            graphData={memoryHistory}
+            graphColor="#9370DB"
+            details={[
+              { label: 'Всего', value: formatBytes(systemInfo.memory.total) },
+              { label: 'Использовано', value: formatBytes(systemInfo.memory.used) },
+              { label: 'Доступно', value: formatBytes(systemInfo.memory.available) }
+            ]}
+            selected={selectedResource === 'memory'}
+            onClick={() => setSelectedResource('memory')}
+          />
+          
+          {/* GPU карточка */}
+          {systemInfo.gpu && (
+            <ResourceCard
+              title="Видеокарта"
+              usage={systemInfo.gpu.usage}
+              graphData={gpuHistory}
+              graphColor="#32CD32"
+              details={[
+                { label: 'Модель', value: systemInfo.gpu.name || 'Неизвестно' },
+                { label: 'Память', value: systemInfo.gpu.memory_total ? formatBytes(systemInfo.gpu.memory_total) : 'Неизвестно' },
+                { label: 'Температура', value: systemInfo.gpu.temperature ? `${systemInfo.gpu.temperature.toFixed(1)}°C` : 'Неизвестно' }
+              ]}
+              selected={selectedResource === 'gpu'}
+              onClick={() => setSelectedResource('gpu')}
+            />
           )}
           
-          {/* Видеокарта */}
-          {systemInfo.gpu ? (
-            <div className="system-section">
-              <h3 className="section-header">Видеокарта</h3>
-              <div className="processor-model">{systemInfo.gpu.name || 'Нет данных'}</div>
-              
-              <div className="info-block">
-                <div className="info-text">
-                  {systemInfo.gpu.memory_type && (
-                    <div className="info-row">
-                      <span>Тип памяти:</span>
-                      <span>{systemInfo.gpu.memory_type}</span>
-                    </div>
-                  )}
-                  {systemInfo.gpu.memory_total && systemInfo.gpu.memory_total > 0 && (
-                    <div className="info-row">
-                      <span>Объем памяти:</span>
-                      <span>{formatBytes(systemInfo.gpu.memory_total)}</span>
-                    </div>
-                  )}
-                  {systemInfo.gpu.memory_used && systemInfo.gpu.memory_total && 
-                   systemInfo.gpu.memory_used > 0 && systemInfo.gpu.memory_total > 0 && (
-                    <div className="info-row">
-                      <span>Использование памяти:</span>
-                      <span>
-                        {formatBytes(systemInfo.gpu.memory_used)} / {formatBytes(systemInfo.gpu.memory_total)} 
-                        ({Math.round((systemInfo.gpu.memory_used / systemInfo.gpu.memory_total) * 100)}%)
-                      </span>
-                    </div>
-                  )}
-                  {systemInfo.gpu.cores && (
-                    <div className="info-row">
-                      <span>Ядра CUDA:</span>
-                      <span>{systemInfo.gpu.cores}</span>
-                    </div>
-                  )}
-                  {systemInfo.gpu.frequency && (
-                    <div className="info-row">
-                      <span>Частота:</span>
-                      <span>{systemInfo.gpu.frequency.toFixed(2)} ГГц</span>
-                    </div>
-                  )}
-                  {systemInfo.gpu.driver_version && (
-                    <div className="info-row">
-                      <span>Версия драйвера:</span>
-                      <span>{systemInfo.gpu.driver_version}</span>
-                    </div>
-                  )}
-                  {systemInfo.gpu.fan_speed && (
-                    <div className="info-row">
-                      <span>Вентилятор:</span>
-                      <span>{systemInfo.gpu.fan_speed.toFixed(0)}%</span>
-                    </div>
-                  )}
-                  {systemInfo.gpu.power_draw && systemInfo.gpu.power_limit && (
-                    <div className="info-row">
-                      <span>Энергопотребление:</span>
-                      <span>{systemInfo.gpu.power_draw.toFixed(1)} / {systemInfo.gpu.power_limit.toFixed(1)} Вт</span>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="gauges-container gpu-gauges">
-                  <div className="gauge-with-label">
-                    <CircularIndicator
-                      value={systemInfo.gpu.usage || 0}
-                      color={getColorForPercentage(systemInfo.gpu.usage || 0)}
-                      text={`${Math.round(systemInfo.gpu.usage || 0)}%`}
-                      label="Использование"
-                    />
-                  </div>
-                  
-                  {systemInfo.gpu.temperature && (
-                    <div className="gauge-with-label">
-                      <CircularIndicator
-                        value={systemInfo.gpu.temperature}
-                        color={getColorForTemperature(systemInfo.gpu.temperature)}
-                        text={`${Math.round(systemInfo.gpu.temperature)}°C`}
-                        label="Температура"
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="system-section">
-              <h3 className="section-header">Видеокарта</h3>
-              <div className="not-available">Информация недоступна</div>
-            </div>
+          {/* Disk карточка */}
+          {systemInfo.disks && systemInfo.disks.length > 0 && (
+            <ResourceCard
+              title="Диски"
+              // Берем среднее значение использования всех дисков
+              usage={systemInfo.disks.reduce((sum, disk) => sum + disk.usage_percent, 0) / systemInfo.disks.length}
+              graphData={diskHistory}
+              graphColor="#FFA500"
+              details={[
+                { label: 'Всего дисков', value: systemInfo.disks.length.toString() },
+                { label: 'Использовано', value: `${(systemInfo.disks.reduce((sum, disk) => sum + disk.usage_percent, 0) / systemInfo.disks.length).toFixed(1)}%` },
+                { label: 'Всего пространства', value: formatBytes(systemInfo.disks.reduce((sum, disk) => sum + disk.total_space, 0)) }
+              ]}
+              selected={selectedResource === 'disk'}
+              onClick={() => setSelectedResource('disk')}
+            />
+          )}
+          
+          {/* Network карточка */}
+          {systemInfo.network && (
+            <ResourceCard
+              title="Сеть"
+              usage={systemInfo.network.usage}
+              graphData={networkHistory}
+              graphColor="#20B2AA"
+              details={[
+                { label: 'Адаптер', value: systemInfo.network.adapter_name || 'Неизвестно' },
+                { label: 'Загрузка', value: systemInfo.network.download_speed ? `${formatBytes(systemInfo.network.download_speed)}/с` : 'Неизвестно' },
+                { label: 'Выгрузка', value: systemInfo.network.upload_speed ? `${formatBytes(systemInfo.network.upload_speed)}/с` : 'Неизвестно' }
+              ]}
+              selected={selectedResource === 'network'}
+              onClick={() => setSelectedResource('network')}
+            />
           )}
         </div>
         
-        {/* Правая колонка */}
-        <div className="status-column">
-          {/* Диски */}
-          {systemInfo.disks && systemInfo.disks.length > 0 ? (
-            <div className="hardware-section">
-              <h2>Диски</h2>
-              {systemInfo.disks.map((disk, index) => (
-                <div key={index} className="hardware-item">
-                  <div className="hardware-header">
-                    <div className="hardware-name">
-                      <b>{disk.name}</b> ({formatBytes(disk.total_space)})
-                    </div>
-                    <CircularIndicator
-                      value={disk.usage_percent}
-                      color={getColorForPercentage(disk.usage_percent)}
-                      text={`${Math.round(disk.usage_percent)}%`}
-                    />
-                  </div>
-                  <div className="hardware-details">
-                    <div className="hardware-info">
-                      <div className="info-row">
-                        <span>Файловая система:</span>
-                        <span>{disk.file_system}</span>
-                      </div>
-                      <div className="info-row">
-                        <span>Точка монтирования:</span>
-                        <span>{disk.mount_point}</span>
-                      </div>
-                      <div className="info-row">
-                        <span>Доступно:</span>
-                        <span>{formatBytes(disk.available_space)} из {formatBytes(disk.total_space)}</span>
-                      </div>
-                      <div className="info-row">
-                        <span>Использовано:</span>
-                        <span>{disk.usage_percent.toFixed(1)}%</span>
-                      </div>
-                      <div className="info-row">
-                        <span>Скорость чтения:</span>
-                        <span>{formatBytes(disk.read_speed)}/с</span>
-                      </div>
-                      <div className="info-row">
-                        <span>Скорость записи:</span>
-                        <span>{formatBytes(disk.write_speed)}/с</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="system-section">
-              <h3 className="section-header">Диски</h3>
-              <div className="no-data-message">Нет данных о дисках</div>
+        {/* Панель детальной информации (справа) */}
+        <div className="detail-panel-container">
+          {lastUpdate && (
+            <div className="last-update">
+              Обновлено: {lastUpdate.toLocaleTimeString()}
             </div>
           )}
           
-          {/* Оперативная память */}
-          {systemInfo.memory ? (
-            <div className="system-section">
-              <h3 className="section-header">Оперативная память</h3>
-              <div className="processor-model">
-                {systemInfo.memory.memory_name && systemInfo.memory.memory_part_number 
-                  ? `${systemInfo.memory.memory_name} ${systemInfo.memory.memory_part_number}` 
-                  : 'Оперативная память'}
-              </div>
-              
-              <div className="info-block">
-                <div className="info-text">
-                  <div className="info-row">
-                    <span>Тип памяти:</span>
-                    <span>{systemInfo.memory.type_ram || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Производитель:</span>
-                    <span>{systemInfo.memory.memory_name || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Модель:</span>
-                    <span>{systemInfo.memory.memory_part_number || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Скорость:</span>
-                    <span>{systemInfo.memory.memory_speed || 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Объем памяти:</span>
-                    <span>{systemInfo.memory.total ? formatBytes(systemInfo.memory.total) : 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Использовано RAM:</span>
-                    <span>{systemInfo.memory.used ? formatBytes(systemInfo.memory.used) : 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Доступно RAM:</span>
-                    <span>{systemInfo.memory.available ? formatBytes(systemInfo.memory.available) : 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Виртуальная память:</span>
-                    <span>{systemInfo.memory.swap_total ? formatBytes(systemInfo.memory.swap_total) : 'Нет данных'}</span>
-                  </div>
-                  <div className="info-row">
-                    <span>Использование вирт. памяти:</span>
-                    <span>{systemInfo.memory.swap_used ? formatBytes(systemInfo.memory.swap_used) : 'Нет данных'}</span>
-                  </div>
-                </div>
-                
-                <div className="gauges-container memory-gauges">
-                  <div className="gauge-with-label">
-                    <CircularIndicator
-                      value={systemInfo.memory.usage_percentage || 0}
-                      color={getColorForPercentage(systemInfo.memory.usage_percentage || 0)}
-                      text={`${Math.round(systemInfo.memory.usage_percentage || 0)}%`}
-                      label="RAM"
-                    />
-                  </div>
-                  
-                  {systemInfo.memory.swap_usage_percentage !== undefined && (
-                    <div className="gauge-with-label">
-                      <CircularIndicator
-                        value={systemInfo.memory.swap_usage_percentage || 0}
-                        color={getColorForPercentage(systemInfo.memory.swap_usage_percentage || 0)}
-                        text={`${Math.round(systemInfo.memory.swap_usage_percentage || 0)}%`}
-                        label="SWAP"
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+          {detailsData ? (
+            <DetailPanel
+              title={detailsData.title}
+              subtitle={detailsData.subtitle}
+              graphData={detailsData.graphData}
+              graphColor={detailsData.graphColor}
+              currentValue={detailsData.currentValue}
+              unit={detailsData.unit}
+              details={detailsData.details}
+            />
           ) : (
-            <div className="system-section">
-              <h3 className="section-header">Оперативная память</h3>
-              <div className="no-data-message">Нет данных о памяти</div>
-            </div>
-          )}
-          
-          {/* Сеть */}
-          {systemInfo.network ? (
-            <div className="system-section">
-              <h3 className="section-header">Сеть</h3>
-              
-              {systemInfo.network.adapter_name && (
-                <div className="network-adapter-name">
-                  {systemInfo.network.adapter_name}
-                  {systemInfo.network.connection_type && ` (${systemInfo.network.connection_type})`}
-                </div>
-              )}
-              
-              <div className="info-block">
-                <div className="info-text">
-                  {systemInfo.network.ip_address && (
-                    <div className="info-row">
-                      <span className="info-label">IP-адрес:</span>
-                      <span className="info-value">{systemInfo.network.ip_address}</span>
-                    </div>
-                  )}
-                  
-                  {systemInfo.network.mac_address && (
-                    <div className="info-row">
-                      <span className="info-label">MAC-адрес:</span>
-                      <span className="info-value">{systemInfo.network.mac_address}</span>
-                    </div>
-                  )}
-                  
-                  <div className="info-row">
-                    <span className="info-label">Использование:</span>
-                    <span className="info-value">{typeof systemInfo.network.usage === 'number' ? `${systemInfo.network.usage.toFixed(1)}%` : 'Нет данных'}</span>
-                  </div>
-                  
-                  {systemInfo.network.download_speed !== undefined && (
-                    <div className="info-row">
-                      <span className="info-label">Скорость загрузки:</span>
-                      <span className="info-value">{formatBytes(systemInfo.network.download_speed)}/с</span>
-                    </div>
-                  )}
-                  
-                  {systemInfo.network.upload_speed !== undefined && (
-                    <div className="info-row">
-                      <span className="info-label">Скорость выгрузки:</span>
-                      <span className="info-value">{formatBytes(systemInfo.network.upload_speed)}/с</span>
-                    </div>
-                  )}
-                  
-                  {systemInfo.network.total_received !== undefined && (
-                    <div className="info-row">
-                      <span className="info-label">Всего получено:</span>
-                      <span className="info-value">{formatBytes(systemInfo.network.total_received)}</span>
-                    </div>
-                  )}
-                  
-                  {systemInfo.network.total_sent !== undefined && (
-                    <div className="info-row">
-                      <span className="info-label">Всего отправлено:</span>
-                      <span className="info-value">{formatBytes(systemInfo.network.total_sent)}</span>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="network-gauge">
-                  <CircularIndicator
-                    value={systemInfo.network.usage || 0}
-                    color={getColorForPercentage(systemInfo.network.usage || 0)}
-                    text={`${Math.round(systemInfo.network.usage || 0)}%`}
-                    label="Использование"
-                  />
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="system-section">
-              <h3 className="section-header">Сеть</h3>
-              <div className="not-available">Информация недоступна</div>
-            </div>
+            <div className="error-message">Нет данных для отображения</div>
           )}
         </div>
       </div>

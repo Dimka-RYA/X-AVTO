@@ -92,6 +92,7 @@ fn main() {
             // Запуск скриптов
             utils::script_runner::run_script,
             utils::script_runner::save_script,
+            utils::script_runner::save_script_by_language,
             
             // Компоненты интерфейса
             minimize_window,

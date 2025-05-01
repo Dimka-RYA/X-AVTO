@@ -2,16 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
 import "./ScriptsTab.css";
 import { invoke } from "@tauri-apps/api/core";
-import { writeBinaryFile, createDir, BaseDirectory } from "@tauri-apps/api/fs";
-import { tempdir } from "@tauri-apps/api/os";
-import { v4 as uuidv4 } from "uuid";
-import { Command } from "@tauri-apps/api/shell";
 import { Terminal as XTerm } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import { WebLinksAddon } from "xterm-addon-web-links";
 import { Unicode11Addon } from "xterm-addon-unicode11";
 import { listen } from "@tauri-apps/api/event";
 import "xterm/css/xterm.css";
+import { Play, Save, TerminalSquare, AlertTriangle, FileText } from 'lucide-react';
 
 // Типы для языков программирования
 type LanguageType = "powershell" | "shell" | "python";
@@ -1480,27 +1477,42 @@ const ScriptsTab: React.FC = () => {
   const handleSaveScript = async () => {
     // Проверяем на ошибки перед сохранением
     checkForErrors(scriptContent, language);
+
+    // Определяем расширение файла в зависимости от языка
+    const fileExtensions = {
+      python: '.py',
+      powershell: '.ps1',
+      shell: '.sh'
+    };
+
+    // Определяем имя скрипта из активной вкладки
+    const scriptName = activeTab.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+    const suggestedName = `${scriptName}${fileExtensions[language]}`;
+
+    // Показываем индикатор процесса сохранения
+    setConsoleOutput(prev => `${prev}\nНачато сохранение скрипта...`);
+    setActiveConsoleTab('output');
     
     try {
-      // Вызываем Rust функцию для сохранения скрипта через диалог выбора файла
-      const result = await invoke<string>("save_script", { 
+      // Вызываем Rust функцию для сохранения скрипта с учетом выбранного языка и предлагаемого имени
+      const result = await invoke<string>("save_script_by_language", { 
         script: scriptContent,
-        language: language
+        language: language,
+        extension: fileExtensions[language],
+        suggested_name: suggestedName  // Обратите внимание на snake_case для Rust API
       });
       
       // Показываем успешное сообщение
       setConsoleOutput(prev => `${prev}\n${result}`);
-      setActiveConsoleTab('output'); // Переключаемся на вкладку вывода
+      setActiveConsoleTab('output');
       
     } catch (error: unknown) {
       console.error("Ошибка при сохранении скрипта:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      // Если это не отмена пользователем, показываем ошибку
-      if (errorMessage !== "Сохранение отменено пользователем") {
-        setConsoleOutput(prev => `${prev}\nОшибка при сохранении скрипта: ${errorMessage}`);
-        setActiveConsoleTab('output'); // Переключаемся на вкладку вывода
-      }
+      // Показываем ошибку
+      setConsoleOutput(prev => `${prev}\nОшибка при сохранении скрипта: ${errorMessage}`);
+      setActiveConsoleTab('output');
     }
   };
 
@@ -2032,13 +2044,13 @@ const ScriptsTab: React.FC = () => {
                 onClick={handleRunScript}
                 disabled={isRunning}
               >
-                {isRunning ? "Выполняется..." : "▶ Запустить"}
+                {isRunning ? "Выполняется..." : <><Play size={16} /> Запустить</>}
               </button>
               <button 
                 className="btn btn-secondary btn-save"
                 onClick={handleSaveScript}
               >
-                💾 Сохранить
+                <Save size={16} /> Сохранить
               </button>
             </div>
             
@@ -2069,6 +2081,7 @@ const ScriptsTab: React.FC = () => {
                   onClick={() => handleConsoleTabChange('output')}
                   data-tab="output"
                 >
+                  <FileText size={14} style={{ marginRight: '6px' }} />
                   Вывод
                 </div>
                 <div 
@@ -2076,6 +2089,7 @@ const ScriptsTab: React.FC = () => {
                   onClick={() => handleConsoleTabChange('terminal')}
                   data-tab="terminal"
                 >
+                  <TerminalSquare size={14} style={{ marginRight: '6px' }} />
                   Терминал
                 </div>
                 <div 
@@ -2083,6 +2097,7 @@ const ScriptsTab: React.FC = () => {
                   onClick={() => handleConsoleTabChange('problems')}
                   data-tab="problems"
                 >
+                  <AlertTriangle size={14} style={{ marginRight: '6px' }} />
                   Проблемы
                   {problems.length > 0 && <span className="problem-badge">{problems.length}</span>}
                 </div>

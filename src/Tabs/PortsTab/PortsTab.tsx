@@ -81,7 +81,7 @@ export const PortsTab: React.FC = () => {
   console.log("[Frontend] Рендер компонента PortsTab, количество портов:", ports.length);
 
   return (
-    <div className="ports-tab">
+    <div className="ports-container">
       <div className="ports-header">
         <h2>Открытые сетевые порты {ports.length > 0 ? `(${ports.length})` : ''}</h2>
         <div className="ports-actions">
@@ -91,31 +91,52 @@ export const PortsTab: React.FC = () => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="search-input"
+            title="Введите текст для поиска по адресам, портам или процессам"
           />
           <button 
             className={`refresh-button ${isRefreshing ? 'refreshing' : ''}`}
             onClick={handleRefresh}
             disabled={isRefreshing}
+            title="Обновить список сетевых портов"
           >
-            Обновить
+            {!isRefreshing && 'Обновить'}
           </button>
           <button 
             className="diagnose-button"
             onClick={diagnoseConnection}
-            title="Запустить диагностику подключения"
+            title="Запустить диагностику сетевых подключений с подробным логированием"
           >
             Диагностика
           </button>
         </div>
       </div>
-      <PortsTable 
-        ports={ports} 
-        searchTerm={searchTerm} 
-        closingPorts={closingPorts}
-        onClosePort={handleClosePort}
-        columnWidths={columnWidths}
-        handleColumnResize={handleColumnResize}
-      />
+      
+      <div className="ports-table-container">
+        {error && <div className="error-toast">{error}</div>}
+        
+        <div className="ports-summary">
+          {loading || isRefreshing ? (
+            <span className="loading-text">Загрузка данных... {ports.length > 0 ? `(найдено ${ports.length} портов)` : ''}</span>
+          ) : (
+            <span>Найдено <strong>{ports.length}</strong> открытых портов</span>
+          )}
+        </div>
+        
+        <PortsTable 
+          ports={ports} 
+          searchTerm={searchTerm} 
+          closingPorts={closingPorts}
+          onClosePort={handleClosePort}
+          columnWidths={columnWidths}
+          handleColumnResize={handleColumnResize}
+        />
+        
+        {ports.length === 0 && !loading && !error && (
+          <div className="no-results">
+            Нет данных о сетевых портах. Обновите список или проверьте настройки.
+          </div>
+        )}
+      </div>
     </div>
   );
 }; 

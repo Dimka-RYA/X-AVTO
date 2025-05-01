@@ -42,6 +42,7 @@
   display: flex;
   width: 100%;
   height: 100%;
+  align-items: stretch; /* Ensure both panels stretch to the same height */
 }
 
 /* Левая панель с терминалом */
@@ -53,6 +54,8 @@
   border: 1px solid #333;
   border-radius: 4px;
   margin-right: 4px;
+  height: 100%; /* Ensure full height */
+  min-height: 0; /* Fix for Firefox flexbox */
 }
 
 /* Правая панель с историей */
@@ -64,6 +67,8 @@
   display: flex;
   flex-direction: column;
   background-color: #1e1e1e;
+  overflow: hidden; /* Ensure content doesn't overflow */
+  min-height: 0; /* Fix for Firefox flexbox */
 }
 
 .terminal-tabs {
@@ -73,6 +78,7 @@
   padding: 0 10px;
   align-items: center;
   justify-content: space-between; /* Распределяем содержимое по краям */
+  min-height: 36px; /* Match the history header height */
 }
 
 .terminal-tab {
@@ -88,6 +94,7 @@
   position: relative;
   border: 1px solid transparent;
   border-bottom: none;
+  color: #ffffff !important;
 }
 
 .terminal-tab.active {
@@ -114,7 +121,7 @@
 .tab-add-btn {
   background: none;
   border: none;
-  color: #999;
+  color: #ffffff !important;
   font-size: 16px;
   cursor: pointer;
   padding: 6px 10px;
@@ -122,7 +129,7 @@
 }
 
 .tab-add-btn:hover {
-  color: #ddd;
+  color: #ffffff !important;
 }
 
 .terminal-toolbar {
@@ -130,6 +137,7 @@
   align-items: center;
   gap: 5px;
   margin-left: auto; /* Сдвигает панель вправо */
+  position: relative;
 }
 
 .tab-start-btn, .tab-clear-btn {
@@ -159,6 +167,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  height: calc(100% - 36px); /* Subtract the tab height */
 }
 
 .terminal-instance {
@@ -208,15 +217,15 @@
 
 /* Заголовок истории */
 .history-header {
-  padding: 8px 10px;
+  padding: 3px 10px;
   background-color: #252526;
   border-bottom: 1px solid #333;
   font-size: 13px;
-  font-weight: bold;
-  color: #eee;
+  color: #fff;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 20px; /* Match the terminal tabs height */
 }
 
 .history-clear-btn {
@@ -237,11 +246,15 @@
   color: #fff;
 }
 
-/* История команд */
+/* История команд - make scrollable */
 .terminal-history {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0;
+  height: calc(100% - 36px); /* Subtract header height */
+  scrollbar-width: thin;
+  scrollbar-color: #555 #252526;
 }
 
 .history-item {
@@ -277,6 +290,16 @@
   gap: 5px;
   align-self: flex-end;
   margin-top: 8px;
+  position: relative;
+}
+
+/* Ensure tooltips in history actions position correctly */
+.history-item-actions .tooltip-container {
+  align-self: center;
+}
+
+.history-item-actions .tooltip-text {
+  bottom: 140%;
 }
 
 .command-delete-btn {
@@ -499,4 +522,151 @@
   text-align: center;
   font-style: italic;
   font-size: 12px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Brand new approach for tooltips - absolute alert style */
+.terminal-toolbar {
+  position: relative;
+}
+
+.history-header {
+  position: relative;
+}
+
+.history-item-actions {
+  position: relative;
+}
+
+/* Create a completely fresh tooltip class with no conflicts */
+.btn-tooltip {
+  position: fixed;
+  top: 0; 
+  left: 0;
+  background-color: #1e1e1e;
+  color: #aaaaaa;
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: normal;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  z-index: 2147483647; /* Maximum possible z-index */
+  opacity: 0;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+  text-align: center;
+  margin-top: 1px; /* Minimal gap below the button */
+  border: 1px solid #2d2d2d;
+  transform: translateX(-50%); /* Center under the button */
+}
+
+/* Add arrow to tooltip - positioned at top for below-button tooltips */
+.btn-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  margin-left: -2px;
+  border-width: 0 2px 2px 2px;
+  border-style: solid;
+  border-color: transparent transparent #1e1e1e transparent;
+  z-index: 1;
+}
+
+/* Create JS-controlled classes for showing tooltips */
+.btn-tooltip.visible {
+  opacity: 1;
+}
+
+/* Style buttons with tooltips */
+.tab-clear-btn, .history-clear-btn, .command-delete-btn {
+  position: relative;
+  background: transparent;
+  border: none;
+  color: #b1b1b1;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  margin: 0 2px;
+}
+
+.tab-clear-btn:hover, .history-clear-btn:hover, .command-delete-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+/* Remove any conflicting styles for tooltips */
+.tooltip-container, 
+.tooltip-text,
+.tooltip-right {
+  display: none !important;
+}
+
+/* Clean up Terminal.css file by removing no longer needed section */
+/* Keep buttons styles simple */
+.terminal-header-buttons button span,
+.terminal-toolbar button span,
+.history-header button span {
+  display: inline-block;
+  margin-left: 5px;
+  font-size: 13px;
+}
+
+.tab-clear-btn, .history-clear-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: #b1b1b1;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin-left: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.tab-clear-btn:hover, .history-clear-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.clear-btn-icon {
+  font-size: 14px;
+}
+
+/* Helper class to control tooltip visibility */
+.tooltip-trigger {
+  cursor: pointer;
+  position: relative;
+}
+
+/* Increase button hitboxes for better usability */
+.tab-clear-btn, .history-clear-btn, .command-delete-btn {
+  position: relative;
+  background: transparent;
+  border: none;
+  color: #b1b1b1;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  margin: 0 2px;
+}
+
+.tab-clear-btn:hover, .history-clear-btn:hover, .command-delete-btn:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
 } 
