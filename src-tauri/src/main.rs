@@ -28,6 +28,7 @@ fn main() {
     let system_info_cache = create_system_info_cache();
 
     Builder::default()
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // Создаем и сохраняем кэш как состояние Tauri
             println!("[Main] Настройка кэша портов и запуск фонового потока обновления");
@@ -93,6 +94,8 @@ fn main() {
             utils::script_runner::run_script,
             utils::script_runner::save_script,
             utils::script_runner::save_script_by_language,
+            utils::script_runner::save_script_with_custom_path,
+            utils::script_runner::save_file_to_path,
             
             // Компоненты интерфейса
             minimize_window,

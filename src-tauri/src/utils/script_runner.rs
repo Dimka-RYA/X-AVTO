@@ -6,6 +6,7 @@ use uuid::Uuid;
 use tempfile::tempdir;
 use std::env;
 use std::path::PathBuf;
+use serde_json;
 
 /// Функция для запуска скрипта на исполнение
 #[command]
@@ -242,96 +243,114 @@ pub async fn save_script(_app: tauri::AppHandle, script: String, language: Strin
     }
 }
 
-/// Новая функция для сохранения скрипта через диалоговое окно выбора файла
+/// Функция для сохранения скрипта через диалоговое окно выбора файла
 /// в зависимости от выбранного языка (python, powershell, shell)
 #[command]
 pub async fn save_script_by_language(app: tauri::AppHandle, script: String, language: String, extension: String, suggested_name: String) -> Result<String, String> {
-    // Определение параметров для диалогового окна выбора файла
-    let title = format!("Сохранить {} скрипт", match language.as_str() {
-        "python" => "Python",
-        "powershell" => "PowerShell",
-        "shell" => "Bash",
-        _ => "текстовый"
-    });
-    
-    // Получение директории документов пользователя
-    let home_dir = match env::var("USERPROFILE").or_else(|_| env::var("HOME")) {
-        Ok(path) => path,
-        Err(_) => return Err("Не удалось определить домашнюю директорию пользователя".to_string())
-    };
-    
-    // Формирование пути к папке по умолчанию
-    let mut default_dir = PathBuf::from(home_dir);
-    default_dir.push("Documents");
-    
-    // Используем предложенное имя файла, либо генерируем новое
-    let default_name = if !suggested_name.is_empty() {
+    // Вместо сохранения на сервере, мы вернем скрипт обратно клиенту вместе с мета-информацией
+    let file_name = if !suggested_name.is_empty() {
         suggested_name
     } else {
         // Уникальное имя файла по умолчанию
         let script_id = Uuid::new_v4().to_string().split('-').next().unwrap_or("script").to_string();
         format!("script_{}_{}{}", language, script_id, extension)
     };
-    
-    // Открытие диалогового окна сохранения файла через native_dialog_save в Rust
-    let file_path_str = invoke_native_save_dialog(&title, default_dir.to_string_lossy().to_string(), &default_name)
-        .map_err(|e| format!("Ошибка при открытии диалога: {}", e))?;
-    
-    // Если диалог был отменен, возвращаем ошибку
-    if file_path_str.is_empty() {
-        return Err("Сохранение отменено пользователем".to_string());
-    }
-    
-    let file_path = PathBuf::from(&file_path_str);
-    
-    // Проверка расширения файла
-    let has_correct_extension = file_path_str.ends_with(&extension);
-    
-    // Добавляем расширение, если его нет
-    let final_path = if !has_correct_extension {
-        let mut path_with_ext = file_path.clone();
-        path_with_ext.set_file_name(format!("{}{}", 
-            file_path.file_name().unwrap_or_default().to_string_lossy(), 
-            extension));
-        path_with_ext
-    } else {
-        file_path
+
+    // Подготовка информации для фронтенда
+    Ok(serde_json::json!({
+        "fileName": file_name,
+        "content": script,
+        "language": language,
+        "extension": extension,
+        "withBom": language == "powershell"
+    }).to_string())
+}
+
+/// Функция для сохранения скрипта через диалоговое окно выбора пути
+#[command]
+pub async fn save_script_with_custom_path(app: tauri::AppHandle, script: String, language: String, extension: String, suggested_name: String) -> Result<String, String> {
+    // Определяем директорию для сохранения - по умолчанию Documents
+    let home_dir = match env::var("USERPROFILE").or_else(|_| env::var("HOME")) {
+        Ok(path) => path,
+        Err(_) => return Err("Не удалось определить домашнюю директорию пользователя".to_string())
     };
     
-    // Сохранение скрипта с правильной кодировкой в зависимости от языка
+    // Формируем путь к директории Documents
+    let mut docs_dir = PathBuf::from(home_dir);
+    docs_dir.push("Documents");
+    
+    // Формируем имя файла
+    let file_name = if !suggested_name.is_empty() {
+        suggested_name
+    } else {
+        let script_id = Uuid::new_v4().to_string().split('-').next().unwrap_or("script").to_string();
+        format!("script_{}_{}{}", language, script_id, extension)
+    };
+    
+    // Формируем полный путь
+    let file_path = docs_dir.join(&file_name);
+    
+    // Убедимся, что директория существует
+    if let Some(parent) = file_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Ошибка при создании директории: {}", e))?;
+        }
+    }
+    
+    // Сохраняем файл
     let result = if language == "powershell" {
-        // Для PowerShell используем UTF-8 с BOM для корректной обработки кириллицы
-        let mut file = fs::File::create(&final_path)
+        // Для PowerShell используем UTF-8 с BOM
+        let mut file = fs::File::create(&file_path)
             .map_err(|e| format!("Ошибка при создании файла: {}", e))?;
         
-        // Запись BOM для UTF-8
         file.write_all(&[0xEF, 0xBB, 0xBF])
             .and_then(|_| file.write_all(script.as_bytes()))
             .map_err(|e| format!("Ошибка при записи в файл: {}", e))
     } else {
-        // Для остальных языков используем стандартный UTF-8
-        fs::write(&final_path, script)
+        // Для остальных языков стандартная запись
+        fs::write(&file_path, script)
             .map_err(|e| format!("Ошибка при сохранении файла: {}", e))
     };
     
     match result {
-        Ok(_) => Ok(format!("Скрипт успешно сохранен в {}", final_path.display())),
+        Ok(_) => {
+            // Возвращаем путь к сохраненному файлу и просим пользователя использовать опцию "Сохранить как..." в браузере
+            Ok(format!("Скрипт успешно сохранен в {}. Для выбора другого местоположения воспользуйтесь опцией \"Сохранить как...\" в браузере.", file_path.display()))
+        },
         Err(e) => Err(e)
     }
 }
 
-// Заглушка для вызова нативного диалога, пока используем имеющуюся функцию
-fn invoke_native_save_dialog(_title: &str, default_dir: String, default_name: &str) -> Result<String, String> {
-    // В реальном коде здесь был бы вызов диалога через FFI или другой механизм
-    // А пока что используем старый метод сохранения в фиксированную директорию
-    
-    let mut path = PathBuf::from(&default_dir);
-    // Создаем директорию, если она не существует
-    if !path.exists() {
-        fs::create_dir_all(&path)
-            .map_err(|e| format!("Ошибка при создании директории: {}", e))?;
+/// Функция для сохранения файла в указанном пути
+#[command]
+pub async fn save_file_to_path(path: String, content: String, with_bom: bool) -> Result<String, String> {
+    // Создаем промежуточные директории, если их нет
+    if let Some(parent) = PathBuf::from(&path).parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Ошибка при создании директории: {}", e))?;
+        }
     }
     
-    path.push(default_name);
-    Ok(path.to_string_lossy().to_string())
+    // Сохраняем файл с BOM или без, в зависимости от параметра
+    let result = if with_bom {
+        // Для PowerShell используем UTF-8 с BOM для корректной обработки кириллицы
+        let mut file = fs::File::create(path.clone())
+            .map_err(|e| format!("Ошибка при создании файла: {}", e))?;
+        
+        // Добавляем BOM для UTF-8
+        file.write_all(&[0xEF, 0xBB, 0xBF])
+            .and_then(|_| file.write_all(content.as_bytes()))
+            .map_err(|e| format!("Ошибка при записи в файл: {}", e))
+    } else {
+        // Для других языков - обычная запись
+        fs::write(path.clone(), content)
+            .map_err(|e| format!("Ошибка при сохранении файла: {}", e))
+    };
+    
+    match result {
+        Ok(_) => Ok(format!("Файл успешно сохранен в {}", path)),
+        Err(e) => Err(e)
+    }
 } 

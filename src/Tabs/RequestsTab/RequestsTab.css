@@ -194,21 +194,24 @@
 /* Стили для контейнера с двумя блоками */
 .panels-container {
   display: flex;
-  gap: 20px;
+  gap: 10px;
   margin: 20px 50px;
-  width: calc(100% - 115px);
+  width: calc(100% - 100px);
+  justify-content: space-between;
 }
 
 /* Стили для левого и правого блоков */
 .left-panel, .right-panel {
-  flex: 1;
+  flex: none;
   background-color: #2A2A2A;
   border: 1px solid #565555;
   border-radius: 10px;
-  min-height: 300px;
+  min-height: 350px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  width: calc(50% - 5px);
+  box-sizing: border-box;
 }
 
 /* Стили для вкладок в левом блоке */
@@ -242,7 +245,8 @@
 .tab-content {
   padding: 15px;
   flex-grow: 1;
-  overflow: auto;
+  overflow: hidden;
+  color: #ffffff;
 }
 
 /* Стили для блока результатов */
@@ -316,6 +320,7 @@
   overflow: auto;
   background-color: #1D1D1D;
   font-family: monospace;
+  color: #ffffff;
 }
 
 .json-content {
@@ -380,6 +385,7 @@ pre {
 /* Стили для панелей с параметрами, заголовками, авторизацией */
 .params-tab, .headers-tab, .auth-tab, .body-tab {
   padding: 10px;
+  color: #ffffff;
 }
 
 .params-header, .headers-header {
@@ -389,6 +395,7 @@ pre {
   background-color: #1D1D1D;
   padding: 8px;
   border-radius: 4px;
+  color: #ffffff;
 }
 
 .param-enabled, .header-enabled {
@@ -396,16 +403,19 @@ pre {
   display: flex;
   align-items: center;
   justify-content: center;
+  color: #ffffff;
 }
 
 .param-key, .header-key {
   flex: 1;
   padding: 0 5px;
+  color: #ffffff;
 }
 
 .param-value, .header-value {
   flex: 2;
   padding: 0 5px;
+  color: #ffffff;
 }
 
 .param-actions, .header-actions {
@@ -422,11 +432,11 @@ pre {
 
 .param-row input[type="text"], .header-row input[type="text"] {
   width: 100%;
-  padding: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
   border: 1px solid #333;
   background-color: #242424;
-  color: #fff;
-  border-radius: 4px;
+  color: #ffffff;
 }
 
 .param-row input[type="checkbox"], .header-row input[type="checkbox"] {
@@ -469,30 +479,35 @@ pre {
 .auth-tab {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 10px;
+  overflow: visible;
 }
 
 .auth-type {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
+  margin-bottom: 5px;
 }
 
 .auth-type label {
   font-weight: bold;
-  margin-bottom: 5px;
+  margin-bottom: 3px;
+  font-size: 13px;
 }
 
 .auth-type select,
 .auth-basic input,
 .auth-bearer input,
 .body-tab select {
-  padding: 8px;
+  padding: 5px 8px;
   border: 1px solid #333;
   background-color: #242424;
   color: #fff;
   border-radius: 4px;
   width: 100%;
+  height: 32px;
+  box-sizing: border-box;
 }
 
 .auth-basic, .auth-bearer {
@@ -504,11 +519,12 @@ pre {
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
 }
 
 .form-group label {
   font-weight: bold;
+  font-size: 13px;
 }
 
 /* Стили для тела запроса */
@@ -845,4 +861,75 @@ pre {
 
 .dark .mqtt-panel .messages-title {
   color: #e0e0e0;
+}
+
+/* Добавляем цвет для остальных полей ввода и текстовых элементов */
+input, select, textarea, button {
+  color: #ffffff;
+}
+
+.auth-type select, 
+.auth-basic input, 
+.auth-bearer input, 
+.form-group input {
+  background-color: #242424;
+  color: #ffffff;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 5px 8px;
+  height: 32px;
+  box-sizing: border-box;
+}
+
+.form-group label {
+  color: #ffffff;
+}
+
+/* Исправляем отображение элементов списка в результатах */
+.header-item, .cookie-item {
+  margin-bottom: 8px;
+  color: #ffffff;
+}
+
+.header-name, .cookie-name {
+  font-weight: bold;
+  margin-right: 10px;
+  color: #65B0ED;
+}
+
+.header-value, .cookie-value {
+  word-break: break-all;
+  color: #ffffff;
+}
+
+.no-cookies {
+  font-style: italic;
+  color: #ffffff;
+}
+
+.response-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #ffffff;
+}
+
+.response-status, .response-time, .response-size {
+  padding: 5px 0;
+  color: #ffffff;
+}
+
+/* Исправляем отображение JSON */
+.json-content {
+  margin: 0;
+  padding: 10px;
+  color: #e0e0e0;
+}
+
+/* Стили унифицируем для всех основных панелей интерфейса */
+.protocol-selector, .protocol-panel, .panels-container {
+  width: calc(100% - 100px);
+  margin-left: 50px;
+  margin-right: 50px;
+  box-sizing: border-box;
 } 

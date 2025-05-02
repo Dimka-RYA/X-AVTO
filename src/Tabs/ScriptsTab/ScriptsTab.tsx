@@ -1494,16 +1494,103 @@ const ScriptsTab: React.FC = () => {
     setActiveConsoleTab('output');
     
     try {
-      // Вызываем Rust функцию для сохранения скрипта с учетом выбранного языка и предлагаемого имени
-      const result = await invoke<string>("save_script_by_language", { 
-        script: scriptContent,
-        language: language,
-        extension: fileExtensions[language],
-        suggested_name: suggestedName  // Обратите внимание на snake_case для Rust API
-      });
+      // Подготавливаем дополнительный BOM для PowerShell скриптов для корректной работы с кириллицей
+      let fileContent = scriptContent;
+      let blobOptions: BlobPropertyBag = {};
       
-      // Показываем успешное сообщение
-      setConsoleOutput(prev => `${prev}\n${result}`);
+      // Для PowerShell скриптов добавляем BOM для корректного отображения кириллицы
+      if (language === 'powershell') {
+        blobOptions.type = 'application/octet-stream';
+        // UTF-8 BOM: EF BB BF
+        const bomPrefix = new Uint8Array([0xEF, 0xBB, 0xBF]);
+        const textEncoder = new TextEncoder();
+        const contentArray = textEncoder.encode(scriptContent);
+        
+        // Объединяем BOM и содержимое скрипта
+        const combinedArray = new Uint8Array(bomPrefix.length + contentArray.length);
+        combinedArray.set(bomPrefix);
+        combinedArray.set(contentArray, bomPrefix.length);
+        
+        // Создаем Blob с BOM
+        const blob = new Blob([combinedArray], blobOptions);
+        
+        // Создаем URL для скачивания
+        const url = URL.createObjectURL(blob);
+        
+        try {
+          // Используем showSaveFilePicker API если он доступен (современные браузеры)
+          if ('showSaveFilePicker' in window) {
+            const fileHandle = await (window as any).showSaveFilePicker({
+              suggestedName: suggestedName,
+              types: [{
+                description: `${language.charAt(0).toUpperCase() + language.slice(1)} Script`,
+                accept: {
+                  'text/plain': [fileExtensions[language]]
+                }
+              }]
+            });
+            
+            const writable = await fileHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            
+            setConsoleOutput(prev => `${prev}\nСкрипт успешно сохранен через диалог выбора пути.`);
+          } else {
+            // Запасной вариант для браузеров без File System Access API
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = suggestedName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            setConsoleOutput(prev => `${prev}\nСкрипт сохранен. Проверьте папку загрузок браузера.`);
+          }
+        } finally {
+          // Очищаем URL
+          URL.revokeObjectURL(url);
+        }
+      } else {
+        // Для других языков просто используем текстовый Blob
+        blobOptions.type = 'text/plain;charset=utf-8';
+        const blob = new Blob([fileContent], blobOptions);
+        const url = URL.createObjectURL(blob);
+        
+        try {
+          // Используем showSaveFilePicker API если он доступен (современные браузеры)
+          if ('showSaveFilePicker' in window) {
+            const fileHandle = await (window as any).showSaveFilePicker({
+              suggestedName: suggestedName,
+              types: [{
+                description: `${language.charAt(0).toUpperCase() + language.slice(1)} Script`,
+                accept: {
+                  'text/plain': [fileExtensions[language]]
+                }
+              }]
+            });
+            
+            const writable = await fileHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            
+            setConsoleOutput(prev => `${prev}\nСкрипт успешно сохранен через диалог выбора пути.`);
+          } else {
+            // Запасной вариант для браузеров без File System Access API
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = suggestedName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            setConsoleOutput(prev => `${prev}\nСкрипт сохранен. Проверьте папку загрузок браузера.`);
+          }
+        } finally {
+          // Очищаем URL
+          URL.revokeObjectURL(url);
+        }
+      }
+      
       setActiveConsoleTab('output');
       
     } catch (error: unknown) {

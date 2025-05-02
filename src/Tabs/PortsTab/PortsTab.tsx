@@ -85,22 +85,24 @@ export const PortsTab: React.FC = () => {
       <div className="ports-header">
         <h2>Открытые сетевые порты {ports.length > 0 ? `(${ports.length})` : ''}</h2>
         <div className="ports-actions">
-          <input
-            type="text"
-            placeholder="Поиск по адресу, порту, процессу..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="search-input"
-            title="Введите текст для поиска по адресам, портам или процессам"
-          />
-          <button 
-            className={`refresh-button ${isRefreshing ? 'refreshing' : ''}`}
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            title="Обновить список сетевых портов"
-          >
-            {!isRefreshing && 'Обновить'}
-          </button>
+          <div className="search-container">
+            <input
+              type="text"
+              placeholder="Поиск по адресу, порту, процессу..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="search-input"
+              title="Введите текст для поиска по адресам, портам или процессам"
+            />
+            <button
+              className={`refresh-button ${isRefreshing ? 'refreshing' : ''}`}
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              title="Обновить список сетевых портов"
+            >
+              {!isRefreshing && 'Обновить'}
+            </button>
+          </div>
           <button 
             className="diagnose-button"
             onClick={diagnoseConnection}
