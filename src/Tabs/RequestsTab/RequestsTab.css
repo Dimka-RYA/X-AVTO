@@ -399,7 +399,7 @@ pre {
 }
 
 .param-enabled, .header-enabled {
-  width: 80px;
+  width: 60px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -407,27 +407,28 @@ pre {
 }
 
 .param-key, .header-key {
-  flex: 1;
-  padding: 0 5px;
+  flex: 0.8;
+  padding: 0 8px;
   color: #ffffff;
 }
 
 .param-value, .header-value {
-  flex: 2;
-  padding: 0 5px;
+  flex: 1.2;
+  padding: 0 8px;
   color: #ffffff;
 }
 
 .param-actions, .header-actions {
-  width: 80px;
+  width: 40px;
   display: flex;
   justify-content: center;
 }
 
 .param-row, .header-row {
   display: flex;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
   align-items: center;
+  gap: 12px;
 }
 
 .param-row input[type="text"], .header-row input[type="text"] {
@@ -449,11 +450,16 @@ pre {
   background-color: #6B2121;
   color: white;
   border: none;
-  padding: 5px 10px;
+  padding: 5px;
   border-radius: 4px;
   cursor: pointer;
   transition: background-color 0.2s;
   font-size: 12px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .delete-btn:hover {
@@ -481,6 +487,8 @@ pre {
   flex-direction: column;
   gap: 10px;
   overflow: visible;
+  max-height: 500px;
+  overflow-y: auto;
 }
 
 .auth-type {
@@ -510,10 +518,11 @@ pre {
   box-sizing: border-box;
 }
 
-.auth-basic, .auth-bearer {
+.auth-basic, .auth-bearer, .auth-digest, .auth-oauth2 {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin-top: 10px;
 }
 
 .form-group {
@@ -525,6 +534,136 @@ pre {
 .form-group label {
   font-weight: bold;
   font-size: 13px;
+}
+
+.form-row {
+  display: flex;
+  gap: 15px;
+}
+
+.form-group.half {
+  flex: 1;
+}
+
+.advanced-auth-section {
+  background-color: #242424;
+  border-radius: 6px;
+  padding: 15px;
+  margin-top: 10px;
+  border: 1px solid #333;
+}
+
+.section-header {
+  margin-bottom: 15px;
+}
+
+.section-header h4 {
+  margin: 0 0 5px 0;
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.auth-hint {
+  color: #999;
+  font-size: 12px;
+  margin: 0;
+}
+
+.input-with-button {
+  display: flex;
+  gap: 8px;
+}
+
+.input-with-button input {
+  flex: 1;
+}
+
+.generate-btn {
+  background-color: #1C6B36;
+  color: white;
+  border: none;
+  padding: 0 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.generate-btn:hover {
+  background-color: #20814A;
+}
+
+.auth-token-section {
+  background-color: #242424;
+  border-radius: 6px;
+  padding: 15px;
+  margin-top: 10px;
+  border: 1px solid #333;
+}
+
+.token-info {
+  background-color: #242424;
+  border-radius: 6px;
+  padding: 15px;
+  margin-top: 15px;
+  border: 1px solid #505050;
+}
+
+.token-info h4 {
+  margin: 0 0 10px 0;
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.token-details {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.token-detail {
+  display: flex;
+  justify-content: space-between;
+}
+
+.token-label {
+  color: #999;
+  font-size: 13px;
+}
+
+.token-value {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.auth-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 15px;
+}
+
+.auth-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background-color: #1C6B36;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  font-size: 13px;
+}
+
+.auth-button:hover {
+  background-color: #20814A;
+}
+
+.auth-button:disabled {
+  background-color: #555;
+  cursor: not-allowed;
 }
 
 /* Стили для тела запроса */
@@ -687,11 +826,11 @@ pre {
 }
 
 .messages-container {
-  border: 1px solid #ccc;
+  border: 1px solid #444;
   border-radius: 4px;
   height: 250px;
   overflow-y: auto;
-  background-color: #f5f5f5;
+  background-color: #262626;
   padding: 10px;
   margin: 10px 0;
 }
@@ -708,25 +847,28 @@ pre {
   display: inline-block;
   max-width: 80%;
   word-break: break-word;
+  color: #ffffff;
 }
 
 .message-item.sent {
   align-self: flex-end;
-  background-color: #dcf8c6;
+  background-color: #0d5c3a;
   margin-left: auto;
-  border: 1px solid #c7e9b0;
+  border: 1px solid #105e3c;
+  color: #ffffff;
 }
 
 .message-item.received {
   align-self: flex-start;
-  background-color: #ffffff;
-  border: 1px solid #e0e0e0;
+  background-color: #333;
+  border: 1px solid #555;
+  color: #ffffff;
 }
 
 .message-label {
   font-weight: bold;
   margin-right: 5px;
-  color: #555;
+  color: #ffffff;
   font-size: 0.9em;
 }
 
@@ -739,11 +881,11 @@ pre {
 }
 
 .error-message {
-  color: #f44336;
+  color: #ff6b6b;
   font-size: 0.9em;
   margin: 5px 0;
   padding: 5px;
-  background-color: #ffebee;
+  background-color: rgba(244, 67, 54, 0.1);
   border-radius: 4px;
   border-left: 3px solid #f44336;
 }
@@ -751,33 +893,22 @@ pre {
 .message-input {
   resize: vertical;
   min-height: 60px;
+  max-height: 100px;
   width: 100%;
   padding: 8px;
-  border: 1px solid #ccc;
+  border: 1px solid #444;
   border-radius: 4px;
+  background-color: #242424;
+  color: #ffffff;
+  font-size: 13px;
+  box-sizing: border-box;
+  overflow-y: auto;
 }
 
-/* Dark mode additions */
-.dark .websocket-panel .messages-container {
-  background-color: #262626;
-  border-color: #444;
-}
-
-.dark .message-item.received {
-  background-color: #333;
-  border-color: #555;
-  color: #eee;
-}
-
-.dark .message-item.sent {
-  background-color: #0d5c3a;
-  border-color: #105e3c;
-  color: #fff;
-}
-
-.dark .error-message {
-  background-color: rgba(244, 67, 54, 0.1);
-  color: #ff6b6b;
+.message-controls {
+  display: flex;
+  gap: 10px;
+  width: 100%;
 }
 
 /* MQTT Panel Styles */
@@ -932,4 +1063,47 @@ input, select, textarea, button {
   margin-left: 50px;
   margin-right: 50px;
   box-sizing: border-box;
+}
+
+.graphql-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.query-container, .variables-container {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.editor-label {
+  font-size: 14px;
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.query-editor, .variables-editor {
+  width: 100%;
+  min-height: 100px;
+  max-height: 150px;
+  padding: 10px;
+  font-family: monospace;
+  background-color: #242424;
+  color: #ffffff;
+  border: 1px solid #333;
+  border-radius: 4px;
+  resize: vertical;
+  overflow-y: auto;
+  box-sizing: border-box;
+  font-size: 13px;
+}
+
+.graphql-error {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: rgba(255, 87, 87, 0.2);
+  border: 1px solid #ff5757;
+  border-radius: 4px;
+  color: #ffffff;
 } 

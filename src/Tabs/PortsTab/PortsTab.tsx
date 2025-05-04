@@ -92,21 +92,22 @@ export const PortsTab: React.FC = () => {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="search-input"
-              title="Введите текст для поиска по адресам, портам или процессам"
+              aria-label="Поиск"
             />
             <button
               className={`refresh-button ${isRefreshing ? 'refreshing' : ''}`}
               onClick={handleRefresh}
               disabled={isRefreshing}
-              title="Обновить список сетевых портов"
+              aria-label="Обновить"
             >
-              {!isRefreshing && 'Обновить'}
+              {!isRefreshing && <span className="button-text">Обновить</span>}
+              {isRefreshing && <span className="loader"></span>}
             </button>
           </div>
           <button 
             className="diagnose-button"
             onClick={diagnoseConnection}
-            title="Запустить диагностику сетевых подключений с подробным логированием"
+            aria-label="Диагностика"
           >
             Диагностика
           </button>

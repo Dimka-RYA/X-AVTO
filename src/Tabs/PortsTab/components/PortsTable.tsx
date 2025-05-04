@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useCallback } from 'react';
 import { PortsTableProps } from '../types';
 import { ResizeableHeader } from './ResizeableHeader';
 import { getAddressDetails, clearAddressCache } from '../utils/addressFormatter';
+import { Folder, X, XCircle } from 'lucide-react';
+import { usePorts } from '../hooks/usePorts';
 import '../Ports.css';
 
 /**
@@ -15,6 +17,9 @@ export const PortsTable: React.FC<PortsTableProps> = ({
   columnWidths,
   handleColumnResize
 }) => {
+  // Доступ к функции openProcessPath из хука usePorts
+  const { openProcessPath } = usePorts();
+
   // Очищаем кэш адресов при монтировании и размонтировании компонента
   useEffect(() => {
     clearAddressCache();
@@ -111,6 +116,36 @@ export const PortsTable: React.FC<PortsTableProps> = ({
     return address || '';
   }, []);
 
+  // Функция для открытия пути к процессу в проводнике
+  const handleOpenProcessPath = useCallback(async (pid: string) => {
+    try {
+      // Проверяем, что PID - это положительное число
+      const pidNum = parseInt(pid, 10);
+      if (isNaN(pidNum) || pidNum <= 0) {
+        alert(`Некорректный идентификатор процесса: ${pid}`);
+        return;
+      }
+      
+      console.log('Открываем путь к процессу с PID:', pidNum);
+      await openProcessPath(pid);
+    } catch (error) {
+      console.error('Ошибка при открытии пути к процессу:', error);
+      
+      // Более информативное сообщение об ошибке
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      if (errorMsg.includes("Не удалось найти путь к процессу")) {
+        alert(`Не удалось найти расположение процесса. Возможно, у вас недостаточно прав доступа или процесс является системным.`);
+      } else {
+        alert(`Не удалось открыть путь к процессу: ${errorMsg}`);
+      }
+    }
+  }, [openProcessPath]);
+
+  // Функция для проверки, является ли процесс системным
+  const isSystemProcess = useCallback((pid: string, name: string): boolean => {
+    return pid === "0" || pid === "4" || name.toLowerCase().includes("system");
+  }, []);
+
   return (
     <div className="table-responsive">
       <table className="ports-table">
@@ -196,30 +231,49 @@ export const PortsTable: React.FC<PortsTableProps> = ({
                   data-has-path={port.path && port.path.trim() !== '' ? "true" : "false"}
                 >
                   {port.name}
-                  {port.path && port.path.trim() !== '' && <span className="path-indicator">📂</span>}
                 </td>
-                <td style={{ width: `${columnWidths.action}px` }}>
-                  <button 
-                    className="action-button"
-                    onClick={() => {
-                      if (port.pid === "0" || port.pid === "4" || port.name.toLowerCase().includes("system")) {
-                        const confirmed = window.confirm(
-                          `Внимание! Вы собираетесь закрыть системный процесс ${port.name} (PID: ${port.pid}).\n\n` +
-                          `Это может привести к нестабильной работе системы. Продолжить?`
-                        );
-                        if (!confirmed) return;
+                <td style={{ width: `${columnWidths.action}px` }} className="action-cell">
+                  <div className="action-buttons">
+                    <button 
+                      className="action-button folder-button"
+                      onClick={() => handleOpenProcessPath(port.pid)}
+                      title={
+                        isSystemProcess(port.pid, port.name) 
+                          ? "Системный процесс: путь недоступен" 
+                          : `Открыть расположение процесса ${port.name}`
                       }
-                      onClosePort(port.pid);
-                    }}
-                    disabled={closingPorts.has(port.pid)}
-                    title={
-                      closingPorts.has(port.pid) 
-                        ? `Закрытие процесса ${port.name}...` 
-                        : `Закрыть процесс ${port.name} (PID: ${port.pid})`
-                    }
-                  >
-                    {closingPorts.has(port.pid) ? 'Закрытие...' : 'Закрыть'}
-                  </button>
+                      aria-label="Открыть расположение"
+                      disabled={isSystemProcess(port.pid, port.name)}
+                    >
+                      <Folder size={16} />
+                    </button>
+                    <button 
+                      className="action-button close-button"
+                      onClick={() => {
+                        if (isSystemProcess(port.pid, port.name)) {
+                          const confirmed = window.confirm(
+                            `Внимание! Вы собираетесь закрыть системный процесс ${port.name} (PID: ${port.pid}).\n\n` +
+                            `Это может привести к нестабильной работе системы. Продолжить?`
+                          );
+                          if (!confirmed) return;
+                        }
+                        onClosePort(port.pid);
+                      }}
+                      disabled={closingPorts.has(port.pid)}
+                      title={
+                        closingPorts.has(port.pid) 
+                          ? `Закрытие процесса ${port.name}...` 
+                          : `Закрыть процесс ${port.name} (PID: ${port.pid})`
+                      }
+                      aria-label={closingPorts.has(port.pid) ? "Закрытие" : "Закрыть"}
+                    >
+                      {closingPorts.has(port.pid) ? (
+                        <span className="closing-indicator"></span>
+                      ) : (
+                        <XCircle size={16} />
+                      )}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))

@@ -426,6 +426,19 @@ export const usePorts = () => {
     await fetchPorts(true); // С индикатором загрузки
   };
 
+  // Функция для открытия пути к процессу
+  const openProcessPath = useCallback(async (pid: string) => {
+    try {
+      console.log('[usePorts] Открываем путь к процессу:', pid);
+      const result = await invoke<string>('open_process_path', { processId: parseInt(pid, 10) });
+      console.log('[usePorts] Результат открытия пути:', result);
+      return result;
+    } catch (error) {
+      console.error('[usePorts] Ошибка при открытии пути к процессу:', error);
+      throw error;
+    }
+  }, []);
+
   return {
     ports,
     loading,
@@ -433,6 +446,7 @@ export const usePorts = () => {
     closingPorts,
     refreshPorts,
     closePort,
-    fetchingRef
+    fetchingRef,
+    openProcessPath
   };
 }; 

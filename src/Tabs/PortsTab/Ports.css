@@ -107,6 +107,20 @@
 .refresh-button {
   border-radius: 0 var(--border-radius) var(--border-radius) 0;
   border-left: 1px solid rgba(255, 255, 255, 0.15);
+  position: relative;
+  min-width: 90px;
+  text-align: center;
+}
+
+.refresh-button .button-text {
+  color: var(--text-primary);
+  opacity: 1;
+  font-weight: normal;
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+.refresh-button:hover .button-text {
+  opacity: 1;
 }
 
 .refresh-button:hover,
@@ -114,11 +128,14 @@
   background-color: rgba(255, 255, 255, 0.15);
 }
 
-.refresh-button.refreshing::after {
-  content: '';
-  position: absolute;
-  width: 14px;
-  height: 14px;
+.refresh-button.refreshing {
+  position: relative;
+}
+
+.loader {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
   border: 2px solid transparent;
   border-top-color: var(--text-primary);
   border-radius: 50%;
@@ -251,28 +268,77 @@
   opacity: 0.7;
 }
 
-/* Action Button */
+/* Action Cell и кнопки с иконками */
+.action-cell {
+  padding: 6px 8px !important;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+/* Стили для кнопок с иконками */
 .action-button {
-  background-color: rgba(244, 67, 54, 0.1);
-  color: var(--error);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
   border: none;
   border-radius: var(--border-radius);
-  padding: 6px 10px;
+  padding: 5px;
   cursor: pointer;
-  transition: background-color var(--transition-speed);
-  font-size: 0.85rem;
-  display: block;
-  width: 100%;
-  text-align: center;
+  transition: all var(--transition-speed);
+  width: 28px;
+  height: 28px;
+  min-width: 0;
 }
 
 .action-button:hover {
-  background-color: rgba(244, 67, 54, 0.2);
+  background-color: rgba(255, 255, 255, 0.1);
+  transform: scale(1.05);
+}
+
+.action-button:active {
+  transform: scale(0.95);
 }
 
 .action-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
+}
+
+.close-button {
+  color: var(--error);
+}
+
+.close-button:hover {
+  background-color: rgba(244, 67, 54, 0.15);
+}
+
+.folder-button {
+  color: var(--accent-primary);
+}
+
+.folder-button:hover {
+  background-color: rgba(61, 127, 249, 0.15);
+}
+
+.folder-button:disabled {
+  color: rgba(61, 127, 249, 0.4);
+  cursor: not-allowed;
+}
+
+.folder-button:disabled:hover {
+  background-color: transparent;
+  transform: none;
+}
+
+.close-icon, .folder-icon {
+  font-size: 16px;
+  display: inline-block;
 }
 
 /* Error handling */
@@ -338,35 +404,24 @@
   background-color: var(--accent-primary);
 }
 
-/* Tooltip Custom Implementation */
+/* Tooltip Custom Implementation - DISABLED */
 [title] {
   position: relative;
 }
 
+/* Removing tooltip functionality */
 [title]:hover::after {
-  content: attr(title);
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  white-space: pre-wrap;
-  background-color: rgba(40, 40, 40, 0.95);
-  color: white;
-  padding: 6px 10px;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  z-index: 1000;
-  max-width: 300px;
-  text-align: left;
-  pointer-events: none;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-  animation: fadeInTooltip 0.2s;
+  content: none;
 }
 
-/* Animations */
+/* Special tooltip style for the refresh button - DISABLED */
+.refresh-button[title]:hover::after {
+  content: none;
+}
+
 @keyframes fadeInTooltip {
-  from { opacity: 0; transform: translate(-50%, 10px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+  from { opacity: 0; transform: translateX(-50%) translateY(5px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 @keyframes fadeIn {
@@ -472,4 +527,14 @@
 .ports-search-container .refresh-button {
   border-radius: 0 var(--border-radius) var(--border-radius) 0;
   border-left: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.closing-indicator {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-top-color: var(--error);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
 } 

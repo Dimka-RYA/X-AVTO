@@ -11,6 +11,8 @@ use utils::terminal::PtyState;
 use utils::db::DbState;
 use utils::system_info::{create_system_info_cache, start_system_info_thread};
 use std::sync::Arc;
+use std::process::Command;
+use std::io;
 
 // Import the commands explicitly
 use ports::commands::{get_network_ports, close_port, refresh_ports_command};
@@ -21,6 +23,115 @@ use components::topbar_func::{minimize_window, toggle_maximize, close_window};
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+#[tauri::command]
+fn open_process_path(process_id: u32) -> Result<String, String> {
+    use std::process::Command;
+    use std::path::PathBuf;
+    
+    // Проверка на системные процессы
+    if process_id == 0 || process_id == 4 {
+        return Err("Системный процесс: путь недоступен".to_string());
+    }
+    
+    // Получаем путь к исполняемому файлу процесса
+    let process_path = match get_process_path(process_id) {
+        Ok(path) => path,
+        Err(err) => return Err(format!("Не удалось получить путь к процессу: {}", err)),
+    };
+    
+    // Проверка на системные пути
+    if process_path.to_lowercase().contains("\\windows\\system32") || 
+       process_path.to_lowercase().contains("\\systemroot") {
+        // Возможно, системный процесс, но мы все равно попробуем открыть проводник
+        println!("Системный процесс обнаружен: {}", process_path);
+    }
+    
+    // Получаем директорию, в которой находится исполняемый файл
+    let dir_path = match PathBuf::from(&process_path).parent() {
+        Some(dir) => dir.to_string_lossy().to_string(),
+        None => return Err("Не удалось определить директорию процесса".to_string()),
+    };
+    
+    // Открываем проводник с указанным путем
+    let result = if cfg!(target_os = "windows") {
+        Command::new("explorer")
+            .args(["/select,", &process_path])
+            .spawn()
+    } else if cfg!(target_os = "macos") {
+        Command::new("open")
+            .arg("-R")
+            .arg(&process_path)
+            .spawn()
+    } else {
+        // Linux - используем xdg-open для открытия директории
+        Command::new("xdg-open")
+            .arg(&dir_path)
+            .spawn()
+    };
+    
+    match result {
+        Ok(_) => Ok(format!("Открыт путь: {}", dir_path)),
+        Err(err) => Err(format!("Ошибка при открытии пути: {}", err)),
+    }
+}
+
+// Вспомогательная функция для получения пути к процессу
+fn get_process_path(pid: u32) -> Result<String, io::Error> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::io::{Error, ErrorKind};
+        
+        // Использует WMI для получения пути к процессу в Windows
+        let output = Command::new("wmic")
+            .args(["process", "where", &format!("ProcessId={}", pid), "get", "ExecutablePath", "/value"])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW flag
+            .output()?;
+        
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        for line in output_str.lines() {
+            if line.starts_with("ExecutablePath=") {
+                return Ok(line.trim_start_matches("ExecutablePath=").to_string());
+            }
+        }
+        
+        Err(Error::new(ErrorKind::Other, "Не удалось найти путь к процессу"))
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        use std::io::{Error, ErrorKind};
+        
+        let output = Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "comm="])
+            .output()?;
+        
+        if !output.status.success() {
+            return Err(Error::new(ErrorKind::Other, "Не удалось выполнить команду ps"));
+        }
+        
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if path.is_empty() {
+            return Err(Error::new(ErrorKind::Other, "Процесс не найден"));
+        }
+        
+        Ok(path)
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::{Error, ErrorKind};
+        use std::fs;
+        
+        let proc_path = format!("/proc/{}/exe", pid);
+        match fs::read_link(&proc_path) {
+            Ok(path) => Ok(path.to_string_lossy().to_string()),
+            Err(e) => Err(Error::new(ErrorKind::Other, 
+                format!("Не удалось прочитать симлинк {}: {}", proc_path, e)))
+        }
+    }
 }
 
 fn main() {
@@ -106,6 +217,7 @@ fn main() {
             get_network_ports,
             close_port,
             refresh_ports_command,
+            open_process_path
         ])
         .run(tauri::generate_context!())
         .expect("Ошибка при запуске приложения");

@@ -93,7 +93,7 @@ export const GraphQLPanel: React.FC<GraphQLPanelProps> = ({ onSendRequest, onGra
       }
 
       // Вызываем стандартный колбэк для RequestsTab
-      onSendRequest(`GraphQL query to ${endpoint}`);
+      onSendRequest(`GraphQL запрос на ${endpoint}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -121,7 +121,7 @@ export const GraphQLPanel: React.FC<GraphQLPanelProps> = ({ onSendRequest, onGra
         <input 
           type="text"
           className="url-input"
-          placeholder="GraphQL Endpoint"
+          placeholder="GraphQL Эндпоинт"
           value={endpoint}
           onChange={(e) => setEndpoint(e.target.value)}
         />
@@ -136,17 +136,18 @@ export const GraphQLPanel: React.FC<GraphQLPanelProps> = ({ onSendRequest, onGra
       
       <div className="graphql-editor">
         <div className="query-container">
-          <div className="editor-label">Query</div>
+          <div className="editor-label">Запрос</div>
           <textarea 
             className="query-editor"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Введите GraphQL запрос"
+            rows={5}
           />
         </div>
         <div className="variables-container">
-          <div className="editor-label">Variables</div>
+          <div className="editor-label">Переменные</div>
           <textarea 
             className="variables-editor"
             value={variables}
@@ -154,6 +155,7 @@ export const GraphQLPanel: React.FC<GraphQLPanelProps> = ({ onSendRequest, onGra
             onFocus={handleVariablesFocus}
             onKeyDown={handleKeyDown}
             placeholder="Введите переменные в формате JSON"
+            rows={3}
           />
         </div>
       </div>

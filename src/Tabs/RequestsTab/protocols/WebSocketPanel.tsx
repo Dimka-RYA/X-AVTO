@@ -61,7 +61,7 @@ export const WebSocketPanel: React.FC<WebSocketPanelProps> = ({ onSendRequest })
       socket.onmessage = (event) => {
         const message = event.data;
         setMessages(prev => [...prev, { text: message, sent: false }]);
-        onSendRequest(`Received: ${message}`);
+        onSendRequest(`Получено: ${message}`);
       };
 
       socket.onerror = (error) => {
@@ -133,7 +133,7 @@ export const WebSocketPanel: React.FC<WebSocketPanelProps> = ({ onSendRequest })
               key={index} 
               className={`message-item ${msg.sent ? 'sent' : 'received'}`}
             >
-              <span className="message-label">{msg.sent ? 'Sent: ' : 'Received: '}</span>
+              <span className="message-label">{msg.sent ? 'Отправлено: ' : 'Получено: '}</span>
               <span className="message-text">{msg.text}</span>
             </div>
           ))}

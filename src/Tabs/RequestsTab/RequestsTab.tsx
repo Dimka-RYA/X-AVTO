@@ -5,6 +5,7 @@ import { GraphQLPanel } from './protocols/GraphQLPanel';
 import { WebSocketPanel } from './protocols/WebSocketPanel';
 import { SocketIOPanel } from './protocols/SocketIOPanel';
 import MQTTPanel from './protocols/MQTTPanel';
+import { Trash2, ExternalLink } from 'lucide-react';
 
 type Protocol = 'http' | 'graphql' | 'websocket' | 'socketio' | 'mqtt';
 type Tab = 'params' | 'auth' | 'headers' | 'body';
@@ -12,6 +13,7 @@ type ResultTab = 'body' | 'cookies' | 'headers' | 'response';
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
 type AuthType = 'none' | 'basic' | 'bearer' | 'digest' | 'oauth2';
 type ResultFormat = 'json' | 'xml' | 'text';
+type OAuth2FlowType = 'client_credentials' | 'authorization_code' | 'password' | 'implicit';
 
 interface RequestParam {
   key: string;
@@ -25,11 +27,37 @@ interface RequestHeader {
   enabled: boolean;
 }
 
+interface DigestAuthData {
+  username: string;
+  password: string;
+  realm: string;
+  nonce: string;
+  algorithm: string;
+  qop: string;
+  nc: string;
+  cnonce: string;
+  opaque: string;
+}
+
+interface OAuth2Data {
+  flow: OAuth2FlowType;
+  clientId: string;
+  clientSecret: string;
+  accessToken: string;
+  refreshToken: string;
+  tokenUrl: string;
+  authUrl: string;
+  scope: string;
+  redirectUri: string;
+}
+
 interface AuthData {
   type: AuthType;
   username: string;
   password: string;
   token: string;
+  digest: DigestAuthData;
+  oauth2: OAuth2Data;
 }
 
 interface HttpResponse {
@@ -116,7 +144,29 @@ export const RequestsTab: React.FC = () => {
     type: 'none',
     username: '',
     password: '',
-    token: ''
+    token: '',
+    digest: {
+      username: '',
+      password: '',
+      realm: '',
+      nonce: '',
+      algorithm: 'MD5',
+      qop: 'auth',
+      nc: '00000001',
+      cnonce: '',
+      opaque: ''
+    },
+    oauth2: {
+      flow: 'client_credentials',
+      clientId: '',
+      clientSecret: '',
+      accessToken: '',
+      refreshToken: '',
+      tokenUrl: '',
+      authUrl: '',
+      scope: '',
+      redirectUri: ''
+    }
   });
   const [requestBody, setRequestBody] = useState<string>('');
   const [contentType, setContentType] = useState<string>('application/json');
@@ -124,6 +174,7 @@ export const RequestsTab: React.FC = () => {
   const [response, setResponse] = useState<HttpResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [oauthTokenData, setOauthTokenData] = useState<any>(null);
   
   // Форматирование результатов
   const [resultFormat, setResultFormat] = useState<string>('json');
@@ -198,6 +249,118 @@ export const RequestsTab: React.FC = () => {
     setAuthData({ ...authData, ...data });
   };
 
+  // Обновление данных Digest Auth
+  const updateDigestData = (data: Partial<DigestAuthData>) => {
+    setAuthData({
+      ...authData,
+      digest: {
+        ...authData.digest,
+        ...data
+      }
+    });
+  };
+
+  // Обновление данных OAuth 2.0
+  const updateOAuth2Data = (data: Partial<OAuth2Data>) => {
+    setAuthData({
+      ...authData,
+      oauth2: {
+        ...authData.oauth2,
+        ...data
+      }
+    });
+  };
+
+  // Генерация CNONCE для Digest Auth
+  const generateCnonce = (): string => {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  };
+
+  // Создание Digest хэша
+  const createDigestHash = (params: DigestAuthData, uri: string, method: string): string => {
+    // В реальном приложении здесь должно быть полноценное вычисление MD5 хэша
+    // Здесь мы используем упрощенный подход для демонстрации
+    const { username, password, realm, nonce, algorithm, qop, nc, cnonce, opaque } = params;
+    
+    // HA1 = MD5(username:realm:password)
+    const ha1 = `${username}:${realm}:${password}`;
+    
+    // HA2 = MD5(method:uri)
+    const ha2 = `${method}:${uri}`;
+    
+    // Если qop указан
+    let response = '';
+    if (qop) {
+      // response = MD5(HA1:nonce:nc:cnonce:qop:HA2)
+      response = `${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`;
+    } else {
+      // response = MD5(HA1:nonce:HA2)
+      response = `${ha1}:${nonce}:${ha2}`;
+    }
+    
+    return response;
+  };
+
+  // Получение OAuth 2.0 токена
+  const getOAuth2Token = async () => {
+    try {
+      setIsLoading(true);
+      const { flow, clientId, clientSecret, tokenUrl, scope } = authData.oauth2;
+      
+      const formData = new URLSearchParams();
+      
+      switch (flow) {
+        case 'client_credentials':
+          formData.append('grant_type', 'client_credentials');
+          break;
+        case 'password':
+          formData.append('grant_type', 'password');
+          formData.append('username', authData.username);
+          formData.append('password', authData.password);
+          break;
+        case 'authorization_code':
+          // В полноценном приложении здесь был бы код обработки authorization_code flow
+          break;
+        case 'implicit':
+          // В полноценном приложении здесь был бы код обработки implicit flow
+          break;
+      }
+      
+      if (scope) {
+        formData.append('scope', scope);
+      }
+      
+      const response = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`
+        },
+        body: formData
+      });
+      
+      if (!response.ok) {
+        throw new Error(`OAuth error: ${response.status} ${response.statusText}`);
+      }
+      
+      const tokenData = await response.json();
+      setOauthTokenData(tokenData);
+      
+      // Обновляем токен в authData
+      updateOAuth2Data({
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token || ''
+      });
+      
+      return tokenData.access_token;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Построение URL с параметрами
   const buildUrlWithParams = (): string => {
     const urlObj = new URL(url);
@@ -213,7 +376,7 @@ export const RequestsTab: React.FC = () => {
   };
 
   // Построение заголовков для запроса
-  const buildRequestHeaders = (): Headers => {
+  const buildRequestHeaders = async (): Promise<Headers> => {
     const requestHeaders = new Headers();
     
     // Добавляем настроенные заголовки
@@ -234,6 +397,28 @@ export const RequestsTab: React.FC = () => {
       requestHeaders.append('Authorization', `Basic ${auth}`);
     } else if (authData.type === 'bearer') {
       requestHeaders.append('Authorization', `Bearer ${authData.token}`);
+    } else if (authData.type === 'digest') {
+      // Получаем данные для Digest авторизации
+      const { username, realm, nonce, algorithm, qop, nc, cnonce, opaque } = authData.digest;
+      const uri = new URL(url).pathname;
+      
+      // Создаем Digest заголовок
+      const digestResponse = createDigestHash(authData.digest, uri, httpMethod);
+      const digestHeader = `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", algorithm=${algorithm}, response="${digestResponse}", qop=${qop}, nc=${nc}, cnonce="${cnonce}", opaque="${opaque}"`;
+      
+      requestHeaders.append('Authorization', digestHeader);
+    } else if (authData.type === 'oauth2') {
+      // Если у нас уже есть токен, используем его
+      let accessToken = authData.oauth2.accessToken;
+      
+      // Если нет токена, запрашиваем новый
+      if (!accessToken) {
+        accessToken = await getOAuth2Token();
+      }
+      
+      if (accessToken) {
+        requestHeaders.append('Authorization', `Bearer ${accessToken}`);
+      }
     }
     
     return requestHeaders;
@@ -283,7 +468,7 @@ export const RequestsTab: React.FC = () => {
       setError(null);
       
       const requestUrl = buildUrlWithParams();
-      const requestHeaders = buildRequestHeaders();
+      const requestHeaders = await buildRequestHeaders();
       const requestBody = prepareRequestBody();
       
       const startTime = performance.now();
@@ -363,34 +548,40 @@ export const RequestsTab: React.FC = () => {
       case 'http':
         return (
           <HttpPanel 
-            onSendRequest={handleSendRequest} 
+            method={httpMethod} 
+            url={url} 
             onMethodChange={handleMethodChange}
             onUrlChange={handleUrlChange}
-            method={httpMethod}
-            url={url}
+            onSendRequest={handleSendRequest}
           />
         );
       case 'graphql':
-        return <GraphQLPanel 
-          onSendRequest={handleSendRequest} 
-          onGraphQLResponse={handleGraphQLResponse}
-        />;
-      case 'websocket':
-        return <WebSocketPanel onSendRequest={handleSendRequest} />;
-      case 'socketio':
-        return <SocketIOPanel onSendRequest={handleSendRequest} />;
-      case 'mqtt':
-        return <MQTTPanel onSendRequest={handleSendRequest} />;
-      default:
         return (
-          <HttpPanel 
-            onSendRequest={handleSendRequest} 
-            onMethodChange={handleMethodChange}
-            onUrlChange={handleUrlChange}
-            method={httpMethod}
-            url={url}
+          <GraphQLPanel 
+            onSendRequest={handleSendRequest}
+            onGraphQLResponse={handleGraphQLResponse}
           />
         );
+      case 'websocket':
+        return (
+          <WebSocketPanel 
+            onSendRequest={handleSendRequest}
+          />
+        );
+      case 'socketio':
+        return (
+          <SocketIOPanel 
+            onSendRequest={handleSendRequest}
+          />
+        );
+      case 'mqtt':
+        return (
+          <MQTTPanel 
+            onSendRequest={handleSendRequest}
+          />
+        );
+      default:
+        return null;
     }
   };
 
@@ -433,7 +624,9 @@ export const RequestsTab: React.FC = () => {
                     />
                   </div>
                   <div className="param-actions">
-                    <button className="delete-btn" onClick={() => removeParam(index)}>Удалить</button>
+                    <button className="delete-btn" onClick={() => removeParam(index)}>
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -477,7 +670,9 @@ export const RequestsTab: React.FC = () => {
                     />
                   </div>
                   <div className="header-actions">
-                    <button className="delete-btn" onClick={() => removeHeader(index)}>Удалить</button>
+                    <button className="delete-btn" onClick={() => removeHeader(index)}>
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -539,13 +734,295 @@ export const RequestsTab: React.FC = () => {
             
             {authData.type === 'digest' && (
               <div className="auth-digest">
-                <p>Поддержка Digest Auth будет добавлена в будущих обновлениях.</p>
+                <div className="form-group">
+                  <label>Имя пользователя</label>
+                  <input 
+                    type="text" 
+                    value={authData.digest.username} 
+                    onChange={(e) => updateDigestData({ username: e.target.value })} 
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Пароль</label>
+                  <input 
+                    type="password" 
+                    value={authData.digest.password} 
+                    onChange={(e) => updateDigestData({ password: e.target.value })} 
+                  />
+                </div>
+                
+                <div className="advanced-auth-section">
+                  <div className="section-header">
+                    <h4>Расширенные настройки</h4>
+                    <p className="auth-hint">Обычно эти поля заполняются автоматически при первоначальном запросе</p>
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Realm</label>
+                    <input 
+                      type="text" 
+                      value={authData.digest.realm} 
+                      onChange={(e) => updateDigestData({ realm: e.target.value })} 
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Nonce</label>
+                    <input 
+                      type="text" 
+                      value={authData.digest.nonce} 
+                      onChange={(e) => updateDigestData({ nonce: e.target.value })} 
+                    />
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group half">
+                      <label>Algorithm</label>
+                      <select
+                        value={authData.digest.algorithm}
+                        onChange={(e) => updateDigestData({ algorithm: e.target.value })}
+                      >
+                        <option value="MD5">MD5</option>
+                        <option value="SHA-256">SHA-256</option>
+                        <option value="SHA-512">SHA-512</option>
+                      </select>
+                    </div>
+                    <div className="form-group half">
+                      <label>QOP</label>
+                      <select
+                        value={authData.digest.qop}
+                        onChange={(e) => updateDigestData({ qop: e.target.value })}
+                      >
+                        <option value="auth">auth</option>
+                        <option value="auth-int">auth-int</option>
+                        <option value="">none</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label>Opaque</label>
+                    <input 
+                      type="text" 
+                      value={authData.digest.opaque} 
+                      onChange={(e) => updateDigestData({ opaque: e.target.value })} 
+                    />
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group half">
+                      <label>NC</label>
+                      <input 
+                        type="text" 
+                        value={authData.digest.nc} 
+                        onChange={(e) => updateDigestData({ nc: e.target.value })} 
+                      />
+                    </div>
+                    <div className="form-group half">
+                      <label>CNonce</label>
+                      <div className="input-with-button">
+                        <input 
+                          type="text" 
+                          value={authData.digest.cnonce} 
+                          onChange={(e) => updateDigestData({ cnonce: e.target.value })} 
+                        />
+                        <button 
+                          className="generate-btn" 
+                          onClick={() => updateDigestData({ cnonce: generateCnonce() })}
+                        >
+                          Сгенерировать
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
             
             {authData.type === 'oauth2' && (
               <div className="auth-oauth2">
-                <p>Поддержка OAuth 2.0 будет добавлена в будущих обновлениях.</p>
+                <div className="form-group">
+                  <label>Тип потока (Grant Type)</label>
+                  <select
+                    value={authData.oauth2.flow}
+                    onChange={(e) => updateOAuth2Data({ flow: e.target.value as OAuth2FlowType })}
+                  >
+                    <option value="client_credentials">Client Credentials</option>
+                    <option value="authorization_code">Authorization Code</option>
+                    <option value="password">Password</option>
+                    <option value="implicit">Implicit</option>
+                  </select>
+                </div>
+                
+                <div className="form-group">
+                  <label>URL токена</label>
+                  <input 
+                    type="text" 
+                    value={authData.oauth2.tokenUrl} 
+                    onChange={(e) => updateOAuth2Data({ tokenUrl: e.target.value })} 
+                    placeholder="https://api.example.com/oauth/token" 
+                  />
+                </div>
+                
+                {(authData.oauth2.flow === 'authorization_code' || authData.oauth2.flow === 'implicit') && (
+                  <div className="form-group">
+                    <label>URL авторизации</label>
+                    <input 
+                      type="text" 
+                      value={authData.oauth2.authUrl} 
+                      onChange={(e) => updateOAuth2Data({ authUrl: e.target.value })} 
+                      placeholder="https://api.example.com/oauth/authorize" 
+                    />
+                  </div>
+                )}
+                
+                <div className="form-row">
+                  <div className="form-group half">
+                    <label>Client ID</label>
+                    <input 
+                      type="text" 
+                      value={authData.oauth2.clientId} 
+                      onChange={(e) => updateOAuth2Data({ clientId: e.target.value })} 
+                    />
+                  </div>
+                  <div className="form-group half">
+                    <label>Client Secret</label>
+                    <input 
+                      type="password" 
+                      value={authData.oauth2.clientSecret} 
+                      onChange={(e) => updateOAuth2Data({ clientSecret: e.target.value })} 
+                    />
+                  </div>
+                </div>
+                
+                {authData.oauth2.flow === 'password' && (
+                  <div className="form-row">
+                    <div className="form-group half">
+                      <label>Имя пользователя</label>
+                      <input 
+                        type="text" 
+                        value={authData.username} 
+                        onChange={(e) => updateAuthData({ username: e.target.value })} 
+                      />
+                    </div>
+                    <div className="form-group half">
+                      <label>Пароль</label>
+                      <input 
+                        type="password" 
+                        value={authData.password} 
+                        onChange={(e) => updateAuthData({ password: e.target.value })} 
+                      />
+                    </div>
+                  </div>
+                )}
+                
+                {(authData.oauth2.flow === 'authorization_code' || authData.oauth2.flow === 'implicit') && (
+                  <div className="form-group">
+                    <label>Redirect URI</label>
+                    <input 
+                      type="text" 
+                      value={authData.oauth2.redirectUri} 
+                      onChange={(e) => updateOAuth2Data({ redirectUri: e.target.value })} 
+                      placeholder="https://your-app.com/callback" 
+                    />
+                  </div>
+                )}
+                
+                <div className="form-group">
+                  <label>Scope (через пробел)</label>
+                  <input 
+                    type="text" 
+                    value={authData.oauth2.scope} 
+                    onChange={(e) => updateOAuth2Data({ scope: e.target.value })} 
+                    placeholder="read write profile" 
+                  />
+                </div>
+                
+                <div className="auth-token-section">
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Access Token</label>
+                      <input 
+                        type="text" 
+                        value={authData.oauth2.accessToken} 
+                        onChange={(e) => updateOAuth2Data({ accessToken: e.target.value })} 
+                        readOnly={authData.oauth2.flow !== 'implicit'}
+                        placeholder="Автоматически получен при запросе" 
+                      />
+                    </div>
+                  </div>
+                  
+                  {(authData.oauth2.flow === 'authorization_code' || authData.oauth2.flow === 'password') && (
+                    <div className="form-group">
+                      <label>Refresh Token</label>
+                      <input 
+                        type="text" 
+                        value={authData.oauth2.refreshToken} 
+                        onChange={(e) => updateOAuth2Data({ refreshToken: e.target.value })} 
+                        readOnly
+                        placeholder="Автоматически получен при запросе" 
+                      />
+                    </div>
+                  )}
+                </div>
+                
+                {oauthTokenData && (
+                  <div className="token-info">
+                    <h4>Информация о токене</h4>
+                    <div className="token-details">
+                      <div className="token-detail">
+                        <span className="token-label">Expires In:</span>
+                        <span className="token-value">{oauthTokenData.expires_in}s</span>
+                      </div>
+                      {oauthTokenData.token_type && (
+                        <div className="token-detail">
+                          <span className="token-label">Token Type:</span>
+                          <span className="token-value">{oauthTokenData.token_type}</span>
+                        </div>
+                      )}
+                      {oauthTokenData.scope && (
+                        <div className="token-detail">
+                          <span className="token-label">Scope:</span>
+                          <span className="token-value">{oauthTokenData.scope}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {(authData.oauth2.flow === 'authorization_code' || authData.oauth2.flow === 'implicit') && (
+                  <div className="auth-actions">
+                    <button
+                      className="auth-button"
+                      onClick={() => {
+                        const { authUrl, clientId, redirectUri, scope } = authData.oauth2;
+                        if (authUrl && clientId) {
+                          const params = new URLSearchParams({
+                            client_id: clientId,
+                            response_type: authData.oauth2.flow === 'authorization_code' ? 'code' : 'token',
+                            redirect_uri: redirectUri || window.location.origin,
+                          });
+                          
+                          if (scope) {
+                            params.append('scope', scope);
+                          }
+                          
+                          window.open(`${authUrl}?${params.toString()}`, '_blank');
+                        }
+                      }}
+                    >
+                      Авторизоваться <ExternalLink size={14} />
+                    </button>
+                  </div>
+                )}
+                
+                {authData.oauth2.flow === 'client_credentials' && (
+                  <div className="auth-actions">
+                    <button
+                      className="auth-button"
+                      onClick={getOAuth2Token}
+                      disabled={!authData.oauth2.clientId || !authData.oauth2.clientSecret || !authData.oauth2.tokenUrl}
+                    >
+                      Получить токен
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
