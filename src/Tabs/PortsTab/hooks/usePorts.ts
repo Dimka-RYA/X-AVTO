@@ -12,6 +12,7 @@ export const usePorts = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [closingPorts, setClosingPorts] = useState<Set<string>>(new Set());
+  const [individuallyClosablePorts, setIndividuallyClosablePorts] = useState<Set<string>>(new Set());
   
   // Флаг для отслеживания видимости компонента
   const isVisibleRef = useRef(true);
@@ -366,50 +367,158 @@ export const usePorts = () => {
     };
   }, [fetchPorts, closingPorts]);
 
+  // Проверяет, можно ли закрыть порт индивидуально через бэкенд
+  const checkIfPortCanBeClosedIndividually = useCallback(async (protocol: string, localAddr: string): Promise<boolean> => {
+    try {
+      const result = await invoke<boolean>('can_close_port_individually', { protocol, localAddr });
+      console.log(`[usePorts] Порт ${protocol}:${localAddr} можно закрыть индивидуально: ${result}`);
+      return result;
+    } catch (error) {
+      console.error('[usePorts] Ошибка при проверке возможности закрытия порта:', error);
+      return false;
+    }
+  }, []);
+
+  // После получения данных о портах, проверяем, какие из них можно закрыть индивидуально
+  useEffect(() => {
+    const checkAllPorts = async () => {
+      if (ports.length === 0) return;
+
+      const newIndividuallyClosablePorts = new Set<string>();
+      const portsToCheck = ports.filter(port => port.protocol === 'TCP'); // Проверяем только TCP порты
+
+      for (const port of portsToCheck) {
+        const canBeClosed = await checkIfPortCanBeClosedIndividually(port.protocol, port.local_addr);
+        if (canBeClosed) {
+          const key = `${port.pid}-${port.local_addr}`;
+          newIndividuallyClosablePorts.add(key);
+        }
+      }
+
+      setIndividuallyClosablePorts(newIndividuallyClosablePorts);
+    };
+
+    // Запускаем проверку с задержкой, чтобы не нагружать систему
+    const timer = setTimeout(checkAllPorts, 1000);
+    return () => clearTimeout(timer);
+  }, [ports, checkIfPortCanBeClosedIndividually]);
+
+  // Проверяет, можно ли закрыть порт индивидуально (используя кэшированные результаты)
+  const canClosePortIndividually = useCallback((pid: string, localAddr: string): boolean => {
+    const key = `${pid}-${localAddr}`;
+    return individuallyClosablePorts.has(key);
+  }, [individuallyClosablePorts]);
+
+  // Функция для экстренного завершения процесса в случае, когда обычные методы не работают
+  const emergencyKillProcess = useCallback(async (pid: string): Promise<string> => {
+    try {
+      console.log('[usePorts] Запуск ЭКСТРЕННОГО завершения процесса с PID:', pid);
+      const result = await invoke<string>('emergency_kill_process', { pid });
+      console.log('[usePorts] Результат экстренного завершения:', result);
+      return result;
+    } catch (error) {
+      console.error('[usePorts] Ошибка при экстренном завершении процесса:', error);
+      throw error;
+    }
+  }, []);
+
   // Закрытие порта с обработкой ошибок и запрет на параллельные операции
-  const closePort = async (pid: string) => {
+  const closePort = async (pid: string, portInfo?: { protocol: string, local_addr: string }, processName?: string) => {
     if (fetchingRef.current || closingPorts.has(pid)) return; // Предотвращаем множественные запросы
     
     try {
       // Помечаем порт как "в процессе закрытия"
       setClosingPorts(prev => new Set(prev).add(pid));
       
-      // Логируем только каждый 5-й запрос на закрытие порта
-      const shouldLog = (++requestCountRef.current) % 5 === 0;
-      if (shouldLog) {
-        console.log(`[usePorts] Закрытие порта с PID ${pid}`);
-      }
-      
-      await invoke('close_port', { pid });
-      
-      // Немедленно удаляем порт из UI для лучшего UX
-      setPorts(prevPorts => prevPorts.filter(port => port.pid !== pid));
-      
-      // Обновляем данные только если есть другие активные порты
-      const remainingPorts = ports.length - 1;
-      if (remainingPorts > 0) {
-        // Используем отложенное обновление через requestAnimationFrame для лучшей производительности
-        window.requestAnimationFrame(() => {
-          setTimeout(() => {
-            if (!fetchingRef.current) {
-              fetchPorts(false);
-            }
-          }, 1000); // Увеличили с 500 до 1000 мс для снижения нагрузки
-        });
-      }
-    } catch (err) {
-      console.error('Ошибка при закрытии порта:', err);
-      setError(`Не удалось закрыть порт с PID ${pid}`);
-      
-      // Автоматически скрываем ошибку через 3 секунды
-      setTimeout(() => setError(null), 3000);
-    } finally {
-      // Удаляем порт из списка "в процессе закрытия"
-      setClosingPorts(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(pid);
-        return newSet;
+      // Немедленно удаляем порт из UI для лучшего UX - делаем это до отправки запроса
+      setPorts(prevPorts => {
+        if (portInfo && portInfo.local_addr) {
+          // Удаляем только конкретный порт, если указан
+          return prevPorts.filter(port => 
+            !(port.pid === pid && port.local_addr === portInfo.local_addr)
+          );
+        } else {
+          // Удаляем все порты с данным PID
+          return prevPorts.filter(port => port.pid !== pid);
+        }
       });
+
+      // Для привилегированных процессов типа Steam сразу используем экстренный метод
+      if (processName && (
+          processName.toLowerCase().includes('steam') || 
+          processName.toLowerCase().includes('game') ||
+          processName.toLowerCase().includes('epic') ||
+          processName.toLowerCase().includes('origin') ||
+          processName.toLowerCase().includes('battle.net') ||
+          processName.toLowerCase().includes('uplay')
+        )) {
+        console.log('[usePorts] Обнаружен игровой процесс, используем экстренное завершение:', processName);
+        
+        try {
+          await emergencyKillProcess(pid);
+          // Даже если экстренный метод успешен, мы уже удалили порт из UI
+          return;
+        } catch (error) {
+          console.error('[usePorts] Ошибка при экстренном завершении процесса:', error);
+          // Если экстренный метод не сработал, пробуем обычный
+        }
+      }
+
+      // Пробуем закрыть порт обычным способом
+      if (portInfo && portInfo.protocol && portInfo.local_addr) {
+        // Пробуем закрыть конкретный порт
+        await invoke('close_specific_port', { 
+          pid,
+          protocol: portInfo.protocol, 
+          localAddr: portInfo.local_addr 
+        });
+      } else {
+        // Закрываем все порты процесса
+        await invoke('close_port', { processId: pid });
+      }
+
+      // Установим таймаут, и если через 3 секунды процесс всё ещё активен, используем force_kill
+      setTimeout(async () => {
+        try {
+          const currentPorts = ports.filter(port => port.pid === pid);
+          if (currentPorts.length > 0) {
+            console.log('[usePorts] Процесс всё ещё активен, пробуем force_kill_process');
+            await invoke('force_kill_process', { pid });
+            
+            // Ещё через 3 секунды проверяем снова и используем экстренный метод
+            setTimeout(async () => {
+              const latestPorts = ports.filter(port => port.pid === pid);
+              if (latestPorts.length > 0) {
+                console.log('[usePorts] Процесс всё ещё активен, используем ЭКСТРЕННОЕ завершение');
+                try {
+                  await emergencyKillProcess(pid);
+                } catch (error) {
+                  console.error('[usePorts] Ошибка при экстренном завершении процесса:', error);
+                }
+              }
+            }, 3000);
+          }
+        } catch (error) {
+          console.error('[usePorts] Ошибка при проверке статуса процесса:', error);
+        }
+      }, 3000);
+
+    } catch (error) {
+      console.error('[usePorts] Ошибка при закрытии порта:', error);
+      
+      // Возвращаем порт в список, если что-то пошло не так
+      if (portInfo) {
+        await refreshPorts();
+      }
+    } finally {
+      // Удаляем порт из списка "в процессе закрытия", даже если была ошибка
+      setTimeout(() => {
+        setClosingPorts(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(pid);
+          return newSet;
+        });
+      }, 5000); // Добавляем небольшую задержку, чтобы анимация продолжалась даже после завершения операции
     }
   };
 
@@ -439,6 +548,32 @@ export const usePorts = () => {
     }
   }, []);
 
+  // Проверяет, является ли процесс привилегированным (Steam и т.д.)
+  const isPrivilegedProcess = useCallback((name: string): boolean => {
+    const privilegedProcesses = [
+      // Системные и привилегированные процессы Windows
+      'svchost', 'lsass', 'services', 'winlogon', 'csrss', 'wininit', 'spoolsv', 
+      'dwm', 'explorer', 'taskhost', 'conhost', 'smss', 'dllhost', 'runtimebroker',
+      'audiodg', 'fontdrive', 'searchindexer', 'msdtc', 'trustedinstaller',
+      
+      // Игровые платформы и клиенты
+      'steam', 'steamwebhelper', 'epicgameslauncher', 'origin', 'galaxyclient', 'battle.net', 'upc',
+      'bethesdalauncher', 'eadesktop', 'gameoverlayui', 
+      
+      // Антивирусы и защита
+      'mcafee', 'norton', 'avast', 'avp', 'defender', 'msmpeng', 'mssense',
+      
+      // Драйверы и службы видеокарт
+      'nvcontainer', 'nvdisplay', 'amdow', 'radeon', 'igfxem', 'igfxhk', 'igfxtray'
+    ];
+    
+    if (!name) return false;
+    const lowercaseName = name.toLowerCase();
+    
+    // Проверяем совпадение с любым из привилегированных процессов
+    return privilegedProcesses.some(process => lowercaseName.includes(process));
+  }, []);
+
   return {
     ports,
     loading,
@@ -447,6 +582,10 @@ export const usePorts = () => {
     refreshPorts,
     closePort,
     fetchingRef,
-    openProcessPath
+    openProcessPath,
+    canClosePortIndividually,
+    individuallyClosablePorts,
+    emergencyKillProcess,
+    isPrivilegedProcess
   };
 }; 

@@ -1096,7 +1096,7 @@ export const RequestsTab: React.FC = () => {
             </div>
           );
         } catch (e) {
-          return <div className="result-content"><pre>{response.body}</pre></div>;
+          return <div className="result-content"><pre className="raw-response">{response.body}</pre></div>;
         }
       case 'headers':
         return (

@@ -15,7 +15,7 @@ use std::process::Command;
 use std::io;
 
 // Import the commands explicitly
-use ports::commands::{get_network_ports, close_port, refresh_ports_command};
+use ports::commands::{get_network_ports, close_port, refresh_ports_command, close_specific_port, can_close_port_individually, force_kill_process, emergency_kill_process};
 use ports::start_ports_refresh_thread;
 use components::topbar_func::{minimize_window, toggle_maximize, close_window};
 
@@ -217,7 +217,11 @@ fn main() {
             get_network_ports,
             close_port,
             refresh_ports_command,
-            open_process_path
+            open_process_path,
+            close_specific_port,
+            can_close_port_individually,
+            force_kill_process,
+            emergency_kill_process
         ])
         .run(tauri::generate_context!())
         .expect("Ошибка при запуске приложения");

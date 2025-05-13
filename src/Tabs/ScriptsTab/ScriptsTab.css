@@ -501,7 +501,38 @@ body, html {
 
 .script-list-item-timestamp {
   font-size: 10px;
+  color: #999;
+  margin-top: 4px;
+}
+
+.script-list-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.btn-delete-script {
+  background: none;
+  border: none;
   color: #888;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: 8px;
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.script-list-item:hover .btn-delete-script {
+  opacity: 1;
+}
+
+.btn-delete-script:hover {
+  color: #f55;
+  background-color: rgba(255, 100, 100, 0.1);
 }
 
 /* Селектор языка (второй элемент) - используем фиксированную ширину */
@@ -865,4 +896,66 @@ body, html {
 
 .header-actions .btn-secondary:hover {
   background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Стили для состояния без скриптов */
+.no-scripts-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #888;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.no-scripts-message p {
+  margin: 5px 0;
+}
+
+.no-scripts-sidebar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 20px;
+  text-align: center;
+}
+
+.no-scripts-sidebar p {
+  color: #888;
+  margin-bottom: 15px;
+  font-size: 13px;
+}
+
+.btn-create-script {
+  background-color: transparent;
+  border: 1px solid #444;
+  color: #4caf50;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.btn-create-script:hover {
+  background-color: rgba(76, 175, 80, 0.1);
+  border-color: #1C6B36;
+}
+
+/* Стили для отключенных кнопок */
+.btn:disabled, 
+.btn-primary:disabled, 
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary:disabled:hover, 
+.btn-secondary:disabled:hover {
+  background-color: transparent;
 } 

@@ -32,57 +32,12 @@ interface ScriptError {
 
 // Пример содержимого скрипта Python
 const DEMO_SCRIPT_PYTHON = `# -*- coding: utf-8 -*-
-import os
-import sys
-import time
-from datetime import datetime
+# Новый скрипт на Python
 
-# Устанавливаем кодировку стандартного вывода для работы с русским текстом
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
+# Пример использования Python
+print("Привет, мир!")
 
-def check_system():
-    print("Проверка системы...")
-    # Получаем текущую дату и время
-    current_date = datetime.now()
-    print(f"Текущая дата и время: {current_date}")
-    
-    # Получаем информацию о системе
-    try:
-        import platform
-        system_info = platform.uname()
-        print(f"Операционная система: {system_info.system}")
-        print(f"Версия: {system_info.release}")
-    except:
-        print("Не удалось получить информацию о системе")
-    
-    # Проверяем свободное место
-    try:
-        if os.name == 'posix':  # Linux/Unix
-            disk_space = os.statvfs('/')
-            free_space = disk_space.f_frsize * disk_space.f_bavail
-            total_space = disk_space.f_frsize * disk_space.f_blocks
-            used_space = total_space - free_space
-            print(f"Использовано диска: {used_space / total_space:.2f}%")
-        else:  # Windows
-            import ctypes
-            free_bytes = ctypes.c_ulonglong(0)
-            total_bytes = ctypes.c_ulonglong(0)
-            ctypes.windll.kernel32.GetDiskFreeSpaceExW(
-                ctypes.c_wchar_p("C:\\"), None, ctypes.pointer(total_bytes), ctypes.pointer(free_bytes)
-            )
-            free_space = free_bytes.value
-            total_space = total_bytes.value
-            used_space = total_space - free_space
-            print(f"Использовано диска: {used_space / total_space:.2f}%")
-    except:
-        print("Не удалось проверить свободное место")
-    
-    return True
-
-if __name__ == "__main__":
-    success = check_system()
-    print("Статус выполнения:", success)`;
+# Ваш код здесь...`;
 
 // Пример содержимого скрипта Python с ошибками для демонстрации подсветки
 const DEMO_SCRIPT_PYTHON_WITH_ERROR = String.raw`# Демонстрация различных типов ошибок в Python
@@ -172,37 +127,15 @@ if __name__ == "__main__"  # Отсутствует двоеточие
 `;
 
 // Пример содержимого скрипта PowerShell
-const DEMO_SCRIPT_POWERSHELL = `# Проверка системы с использованием PowerShell
+const DEMO_SCRIPT_POWERSHELL = `# Новый скрипт на PowerShell
 
-# Устанавливаем кодировку вывода в UTF-8
+# Устанавливаем кодировку для корректного отображения русских символов
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
-$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
-$PSDefaultParameterValues['*:Encoding'] = 'utf8'
 
-Write-Host "Проверка системы..."
+# Пример команды PowerShell
+Write-Host "Привет, мир!"
 
-# Получаем текущую дату и время
-$currentDate = Get-Date -Format "dd.MM.yyyy HH:mm:ss"
-Write-Output "Текущая дата и время: $currentDate"
-
-# Получаем информацию о системе
-$osInfo = Get-CimInstance Win32_OperatingSystem
-Write-Host "Операционная система: $($osInfo.Caption)"
-Write-Host "Версия: $($osInfo.Version)"
-
-# Проверяем свободное место на диске C:
-$disk = Get-PSDrive C
-$totalSpace = $disk.Used + $disk.Free
-$usedSpace = $disk.Used
-$usagePercent = [math]::Round(($usedSpace / $totalSpace) * 100, 2)
-
-Write-Host "Использовано диска: $usagePercent%"
-
-# Возвращаем статус
-$success = $true
-Write-Host "Статус выполнения: $success"
-Exit $success`;
+# Ваш код здесь...`;
 
 // Пример содержимого скрипта PowerShell с ошибками для демонстрации подсветки
 const DEMO_SCRIPT_POWERSHELL_WITH_ERROR = String.raw`# Демонстрация различных типов ошибок в PowerShell
@@ -283,25 +216,12 @@ $text = @"
 
 // Пример содержимого скрипта Bash
 const DEMO_SCRIPT_BASH = `#!/bin/bash
-# Проверка системы с использованием Bash
+# Новый скрипт на Bash
 
-echo "Проверка системы..."
+# Пример команды Bash
+echo "Привет, мир!"
 
-# Получаем информацию о системе
-OS_INFO=$(uname -a)
-echo "Операционная система: $(uname -s)"
-echo "Версия: $(uname -r)"
-
-# Проверяем свободное место на корневом разделе
-DISK_INFO=$(df -h / | tail -n 1)
-USED_PERCENT=$(echo $DISK_INFO | awk '{print $5}')
-
-echo "Использовано диска: $USED_PERCENT"
-
-# Возвращаем статус
-SUCCESS=true
-echo "Статус выполнения: $SUCCESS"
-exit 0`;
+# Ваш код здесь...`;
 
 // Пример содержимого скрипта Bash с ошибками для демонстрации подсветки
 const DEMO_SCRIPT_BASH_WITH_ERROR = String.raw`#!/bin/bash
@@ -391,11 +311,7 @@ const DEMO_CONSOLE_OUTPUT = `Проверка системы...
 
 // Пример данных скриптов с добавленным полем language
 const DEMO_SCRIPTS = [
-  { id: 1, name: "скрипт 1", timestamp: "22 апр 18:37:43", language: "python" as LanguageType },
-  { id: 2, name: "скриптовый", timestamp: "22 апр 18:37:43", language: "powershell" as LanguageType },
-  { id: 3, name: "скрипт с ошибкой", timestamp: "22 апр 18:37:43", language: "python" as LanguageType, content: DEMO_SCRIPT_PYTHON_WITH_ERROR },
-  { id: 4, name: "bash ошибка", timestamp: "22 апр 18:37:43", language: "shell" as LanguageType, content: DEMO_SCRIPT_BASH_WITH_ERROR },
-  { id: 5, name: "powershell ошибка", timestamp: "22 апр 18:37:43", language: "powershell" as LanguageType, content: DEMO_SCRIPT_POWERSHELL_WITH_ERROR },
+  { id: 1, name: "Новый скрипт", timestamp: "22 апр 18:37:43", language: "python" as LanguageType, content: "# Новый скрипт\n\nprint('Привет, мир!')" }
 ];
 
 // Компоненты выбора языка
@@ -464,6 +380,12 @@ const ScriptsTab: React.FC = () => {
 
   // Обработчик выбора скрипта
   const handleScriptSelect = (id: number) => {
+    // Проверяем, существует ли скрипт с этим id
+    const scriptExists = scripts.some(s => s.id === id);
+    if (!scriptExists) {
+      return;
+    }
+    
     setActiveScript(id);
     const script = scripts.find(s => s.id === id);
     if (script) {
@@ -2115,6 +2037,36 @@ const ScriptsTab: React.FC = () => {
     }, 0);
   };
 
+  // Обработчик удаления скрипта
+  const handleDeleteScript = (e: React.MouseEvent, id: number) => {
+    e.stopPropagation(); // Предотвращаем выбор скрипта при нажатии на кнопку удаления
+    
+    // Фильтруем список скриптов, исключая скрипт с указанным id
+    const updatedScripts = scripts.filter(script => script.id !== id);
+    
+    setScripts(updatedScripts);
+    
+    // Если был активен удаляемый скрипт
+    if (activeScript === id) {
+      if (updatedScripts.length > 0) {
+        // Выбираем первый из оставшихся скриптов
+        const firstScript = updatedScripts[0];
+        setActiveScript(firstScript.id);
+        setActiveTab(firstScript.name);
+        setLanguage(firstScript.language);
+        setScriptContent(firstScript.content || getTemplateForLanguage(firstScript.language));
+      } else {
+        // Если скриптов больше нет, сбрасываем активный скрипт
+        setActiveScript(null);
+        setActiveTab("");
+        setScriptContent("");
+      }
+      // Сбрасываем вывод консоли и ошибки
+      setConsoleOutput("");
+      setErrors([]);
+    }
+  };
+
   return (
     <div className="scripts-container">
       <div className="scripts-main">
@@ -2129,13 +2081,14 @@ const ScriptsTab: React.FC = () => {
               <button 
                 className="btn btn-primary btn-run" 
                 onClick={handleRunScript}
-                disabled={isRunning}
+                disabled={isRunning || activeScript === null}
               >
                 {isRunning ? "Выполняется..." : <><Play size={16} /> Запустить</>}
               </button>
               <button 
                 className="btn btn-secondary btn-save"
                 onClick={handleSaveScript}
+                disabled={activeScript === null}
               >
                 <Save size={16} /> Сохранить
               </button>
@@ -2149,15 +2102,22 @@ const ScriptsTab: React.FC = () => {
           </div>
           
           <div className="script-editor-content">
-            <Editor
-              height="100%"
-              language={language}
-              value={scriptContent}
-              theme="vs-dark"
-              onChange={handleEditorChange}
-              options={editorOptions}
-              onMount={handleEditorDidMount}
-            />
+            {activeScript === null ? (
+              <div className="no-scripts-message">
+                <p>Нет доступных скриптов</p>
+                <p>Создайте новый скрипт, нажав кнопку "+ Новый скрипт"</p>
+              </div>
+            ) : (
+              <Editor
+                height="100%"
+                language={language}
+                value={scriptContent}
+                theme="vs-dark"
+                onChange={handleEditorChange}
+                options={editorOptions}
+                onMount={handleEditorDidMount}
+              />
+            )}
           </div>
           
           <div className="script-console">
@@ -2196,21 +2156,42 @@ const ScriptsTab: React.FC = () => {
           </div>
         </div>
         <div className="scripts-sidebar">
-          {scripts.map(script => (
-            <div 
-              key={script.id} 
-              className={`script-list-item ${activeScript === script.id ? 'active' : ''} ${
-                script.content && script.content.includes('error') ? 'has-errors' : ''
-              }`}
-              onClick={() => handleScriptSelect(script.id)}
-            >
-              <div className="script-list-item-info">
-                <div>{script.name}</div>
-                <div className="script-language-badge">{script.language}</div>
-              </div>
-              <div className="script-list-item-timestamp">{script.timestamp}</div>
+          {scripts.length === 0 ? (
+            <div className="no-scripts-sidebar">
+              <p>Нет доступных скриптов</p>
+              <button 
+                className="btn-create-script" 
+                onClick={handleNewScript}
+              >
+                + Создать скрипт
+              </button>
             </div>
-          ))}
+          ) : (
+            scripts.map(script => (
+              <div 
+                key={script.id} 
+                className={`script-list-item ${activeScript === script.id ? 'active' : ''} ${
+                  script.content && script.content.includes('error') ? 'has-errors' : ''
+                }`}
+                onClick={() => handleScriptSelect(script.id)}
+              >
+                <div className="script-list-item-info">
+                  <div>{script.name}</div>
+                  <div className="script-language-badge">{script.language}</div>
+                </div>
+                <div className="script-list-item-actions">
+                  <div className="script-list-item-timestamp">{script.timestamp}</div>
+                  <button 
+                    className="btn-delete-script" 
+                    onClick={(e) => handleDeleteScript(e, script.id)}
+                    title="Удалить скрипт"
+                  >
+                    ✖
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

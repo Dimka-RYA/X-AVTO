@@ -46,7 +46,7 @@ export interface PortsTableProps {
   ports: Port[];
   searchTerm: string;
   closingPorts: Set<string>;
-  onClosePort: (pid: string) => Promise<void>;
+  onClosePort: (pid: string, portInfo?: { protocol: string, local_addr: string }, processName?: string) => Promise<void>;
   columnWidths: ColumnWidths;
   handleColumnResize: (column: keyof ColumnWidths, newWidth: number) => void;
 }
@@ -57,7 +57,7 @@ export interface PortsTableProps {
 export interface PortsListProps {
   ports: Port[];
   closingPorts: Set<string>;
-  onClosePort: (pid: string) => Promise<void>;
+  onClosePort: (pid: string, portInfo?: { protocol: string, local_addr: string }, processName?: string) => Promise<void>;
   columnWidths: ColumnWidths;
 }
 

@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useCallback } from 'react';
 import { PortsTableProps } from '../types';
 import { ResizeableHeader } from './ResizeableHeader';
 import { getAddressDetails, clearAddressCache } from '../utils/addressFormatter';
-import { Folder, X, XCircle } from 'lucide-react';
+import { Folder, X, XCircle, Scissors, Shield, AlertTriangle } from 'lucide-react';
 import { usePorts } from '../hooks/usePorts';
 import '../Ports.css';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faFolder, faBomb, faShield, faTriangleExclamation, faScissors, faCircleXmark } from '@fortawesome/free-solid-svg-icons';
 
 /**
  * Компонент таблицы для отображения списка портов
@@ -17,8 +19,8 @@ export const PortsTable: React.FC<PortsTableProps> = ({
   columnWidths,
   handleColumnResize
 }) => {
-  // Доступ к функции openProcessPath из хука usePorts
-  const { openProcessPath } = usePorts();
+  // Получаем вспомогательные функции из хука usePorts
+  const { openProcessPath, canClosePortIndividually, isPrivilegedProcess } = usePorts();
 
   // Очищаем кэш адресов при монтировании и размонтировании компонента
   useEffect(() => {
@@ -116,35 +118,38 @@ export const PortsTable: React.FC<PortsTableProps> = ({
     return address || '';
   }, []);
 
-  // Функция для открытия пути к процессу в проводнике
-  const handleOpenProcessPath = useCallback(async (pid: string) => {
-    try {
-      // Проверяем, что PID - это положительное число
-      const pidNum = parseInt(pid, 10);
-      if (isNaN(pidNum) || pidNum <= 0) {
-        alert(`Некорректный идентификатор процесса: ${pid}`);
-        return;
-      }
-      
-      console.log('Открываем путь к процессу с PID:', pidNum);
-      await openProcessPath(pid);
-    } catch (error) {
-      console.error('Ошибка при открытии пути к процессу:', error);
-      
-      // Более информативное сообщение об ошибке
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      if (errorMsg.includes("Не удалось найти путь к процессу")) {
-        alert(`Не удалось найти расположение процесса. Возможно, у вас недостаточно прав доступа или процесс является системным.`);
-      } else {
-        alert(`Не удалось открыть путь к процессу: ${errorMsg}`);
-      }
-    }
+  // Обработчик открытия пути к процессу
+  const handleOpenProcessPath = useCallback((pid: string) => {
+    openProcessPath(pid).catch(err => {
+      console.error('Ошибка при открытии пути к процессу:', err);
+    });
   }, [openProcessPath]);
 
-  // Функция для проверки, является ли процесс системным
-  const isSystemProcess = useCallback((pid: string, name: string): boolean => {
-    return pid === "0" || pid === "4" || name.toLowerCase().includes("system");
-  }, []);
+  // Проверяет, является ли процесс системным
+  const isSystemProcess = (pid: string, processName: string): boolean => {
+    const systemPids = ['0', '4'];
+    const systemProcessNames = ['system', 'system idle process', 'idle', 'registry', 'memory compression', 'secure system'];
+    
+    const pidMatches: boolean = systemPids.includes(pid);
+    const nameMatches: boolean = Boolean(processName && systemProcessNames.some(name => processName.toLowerCase().includes(name)));
+    
+    return pidMatches || nameMatches;
+  };
+
+  // Возвращает соответствующую иконку в зависимости от типа процесса
+  const getProcessIcon = (pid: string, processName: string) => {
+    if (isSystemProcess(pid, processName)) {
+      return faShield; // Иконка щита для системных процессов
+    } else if (processName.toLowerCase().includes('steam')) {
+      return faTriangleExclamation; // Иконка треугольника с восклицательным знаком для Steam
+    } else if (isPrivilegedProcess(processName)) {
+      return faTriangleExclamation; // Иконка треугольника с восклицательным знаком для привилегированных процессов
+    } else if (canClosePortIndividually && canClosePortIndividually(pid, '')) {
+      return faScissors; // Иконка ножниц для процессов, которые можно закрыть индивидуально
+    } else {
+      return faCircleXmark; // Иконка крестика для обычных процессов
+    }
+  };
 
   return (
     <div className="table-responsive">
@@ -237,42 +242,66 @@ export const PortsTable: React.FC<PortsTableProps> = ({
                     <button 
                       className="action-button folder-button"
                       onClick={() => handleOpenProcessPath(port.pid)}
-                      title={
-                        isSystemProcess(port.pid, port.name) 
-                          ? "Системный процесс: путь недоступен" 
-                          : `Открыть расположение процесса ${port.name}`
-                      }
-                      aria-label="Открыть расположение"
-                      disabled={isSystemProcess(port.pid, port.name)}
+                      disabled={!port.path}
                     >
-                      <Folder size={16} />
+                      <FontAwesomeIcon icon={faFolder} className="folder-icon" />
                     </button>
-                    <button 
-                      className="action-button close-button"
-                      onClick={() => {
-                        if (isSystemProcess(port.pid, port.name)) {
+                    
+                    {port.name.toLowerCase().includes('steam') || 
+                     port.name.toLowerCase().includes('game') ||
+                     port.name.toLowerCase().includes('epic') ||
+                     port.name.toLowerCase().includes('origin') ||
+                     port.name.toLowerCase().includes('battle.net') ||
+                     port.name.toLowerCase().includes('uplay') ? (
+                      <button 
+                        className="action-button emergency-button"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           const confirmed = window.confirm(
-                            `Внимание! Вы собираетесь закрыть системный процесс ${port.name} (PID: ${port.pid}).\n\n` +
-                            `Это может привести к нестабильной работе системы. Продолжить?`
+                            `❗ ВНИМАНИЕ! Вы собираетесь принудительно завершить игровой процесс ${port.name} (PID: ${port.pid}).` +
+                            `\n\nЭто может привести к потере несохраненных данных. Продолжить?`
                           );
-                          if (!confirmed) return;
-                        }
-                        onClosePort(port.pid);
-                      }}
-                      disabled={closingPorts.has(port.pid)}
-                      title={
-                        closingPorts.has(port.pid) 
-                          ? `Закрытие процесса ${port.name}...` 
-                          : `Закрыть процесс ${port.name} (PID: ${port.pid})`
-                      }
-                      aria-label={closingPorts.has(port.pid) ? "Закрытие" : "Закрыть"}
-                    >
-                      {closingPorts.has(port.pid) ? (
-                        <span className="closing-indicator"></span>
-                      ) : (
-                        <XCircle size={16} />
-                      )}
-                    </button>
+                          if (confirmed) {
+                            onClosePort(port.pid, {
+                              protocol: port.protocol,
+                              local_addr: port.local_addr
+                            }, port.name);
+                          }
+                        }}
+                        disabled={closingPorts.has(port.pid)}
+                      >
+                        {closingPorts.has(port.pid) ? (
+                          <span className="closing-indicator steam"></span>
+                        ) : (
+                          <FontAwesomeIcon icon={faBomb} className="bomb-icon" />
+                        )}
+                      </button>
+                    ) : (
+                      <button 
+                        className="action-button close-button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isSystemProcess(port.pid, port.name)) {
+                            const confirmed = window.confirm(
+                              `Внимание! Вы собираетесь закрыть системный процесс ${port.name} (PID: ${port.pid}).\n\n` +
+                              `Это может привести к нестабильной работе системы. Продолжить?`
+                            );
+                            if (!confirmed) return;
+                          }
+                          onClosePort(port.pid, {
+                            protocol: port.protocol,
+                            local_addr: port.local_addr
+                          }, port.name);
+                        }}
+                        disabled={closingPorts.has(port.pid)}
+                      >
+                        {closingPorts.has(port.pid) ? (
+                          <span className={`closing-indicator ${isSystemProcess(port.pid, port.name) ? 'system' : isPrivilegedProcess(port.name) ? 'privileged' : ''}`}></span>
+                        ) : (
+                          <FontAwesomeIcon icon={getProcessIcon(port.pid, port.name)} className="close-icon" />
+                        )}
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

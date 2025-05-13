@@ -18,8 +18,19 @@ const initialColumnWidths: ColumnWidths = {
 };
 
 export const PortsTab: React.FC = () => {
-  // Используем кастомный хук для работы с портами
-  const { ports, loading, error, closingPorts, refreshPorts, closePort } = usePorts();
+  // Получаем необходимые данные и функции из хука usePorts
+  const {
+    ports,
+    loading,
+    error,
+    closingPorts,
+    refreshPorts,
+    closePort,
+    openProcessPath,
+    canClosePortIndividually,
+    isPrivilegedProcess,
+    emergencyKillProcess
+  } = usePorts();
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,8 +77,8 @@ export const PortsTab: React.FC = () => {
   };
 
   // Обработчик закрытия порта
-  const handleClosePort = useCallback(async (pid: string) => {
-    await closePort(pid);
+  const handleClosePort = useCallback(async (pid: string, portInfo?: { protocol: string, local_addr: string }, processName?: string) => {
+    await closePort(pid, portInfo, processName);
   }, [closePort]);
 
   // Обработчик изменения ширины столбца
@@ -115,7 +126,17 @@ export const PortsTab: React.FC = () => {
       </div>
       
       <div className="ports-table-container">
-        {error && <div className="error-toast">{error}</div>}
+        {error && (
+          <div className={`toast-message ${
+            error.startsWith('✓') ? 'success-toast' : 
+            error.startsWith('⚠️') ? 'warning-toast' : 
+            error.startsWith('ℹ️') ? 'info-toast' : 
+            error.startsWith('⏱️') ? 'info-toast' : 
+            'error-toast'
+          }`}>
+            {error}
+          </div>
+        )}
         
         <div className="ports-summary">
           {loading || isRefreshing ? (
